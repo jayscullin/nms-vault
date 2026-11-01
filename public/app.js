@@ -132,6 +132,15 @@ function renderTopbar() {
 
 // ---- save picker -----------------------------------------------------------
 
+// Earlier-save sections the user expanded, kept open across re-renders.
+state.openEarlier = new Set();
+document.addEventListener('toggle', (e) => {
+  const key = e.target.dataset?.earlier;
+  if (!key) return;
+  if (e.target.open) state.openEarlier.add(key);
+  else state.openEarlier.delete(key);
+}, true);
+
 const savedAt = (s) => new Date(s.savedAt ?? s.mtime);
 
 function playTime(seconds) {
@@ -188,7 +197,17 @@ function renderSlotGroup(a, { slot, saves }) {
         </div>
       </div>
       ${sameAs ? `<div class="warnings slot-warning">Same save as slot ${sameAs.join(', ')}. The game will report a cross-save conflict. Restore the slot that was overwritten from Backups, or delete one copy from the game’s own load menu.</div>` : ''}
-      ${saves.map((s, i) => renderSaveRow(a, s, i === 0 ? 'Latest' : `Earlier save · ${gap(savedAt(saves[0]) - savedAt(s))} before`)).join('')}
+      ${renderSaveRow(a, latest, 'Latest')}
+      ${saves.slice(1).map((s) => {
+        // The game only shows a slot's latest save, so the other one is tucked away.
+        const key = `${a.id}/${s.file}`;
+        const when = `${gap(savedAt(latest) - savedAt(s))} before`;
+        return `
+      <details class="earlier" data-earlier="${esc(key)}" ${state.openEarlier.has(key) ? 'open' : ''}>
+        <summary title="The game keeps two saves in every slot and shows only the latest. This is the slot's other, older save.">Earlier save · ${esc(when)} <span class="muted">(not shown in the game)</span></summary>
+        ${renderSaveRow(a, s, 'Earlier save')}
+      </details>`;
+      }).join('')}
     </div>`;
 }
 
@@ -196,9 +215,7 @@ function renderSaveRow(a, s, label) {
   const vr = state.verify[`${a.id}/${s.file}`];
   return `
     <div class="slot-row">
-      <div class="when-label ${label === 'Latest' ? 'latest' : ''}" title="${label === 'Latest'
-        ? 'The save the game loads for this slot'
-        : 'The game keeps two saves in every slot: the latest and an earlier one. This is the earlier one; the game loads the latest.'}">${esc(label)}</div>
+      <div class="when-label ${label === 'Latest' ? 'latest' : ''}" title="${label === 'Latest' ? 'The save the game shows and loads for this slot' : 'Older save kept in this slot; the game loads the latest'}">${esc(label)}</div>
       <div>${esc(s.summary ?? s.error ?? 'Unknown location')}
         <div class="when">${savedAt(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${playTime(s.playTime) ? ` · ${playTime(s.playTime)}` : ''} · <span class="mono">${esc(s.file)}</span></div></div>
       <button class="btn small" data-action="verify" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Prove the save can be rewritten without changing a byte">Verify</button>

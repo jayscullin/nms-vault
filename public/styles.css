@@ -222,6 +222,10 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .reward .check { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); font-weight: 700; }
 .tag.ok { color: var(--ok); border-color: var(--ok); }
 .tag.pending { color: var(--accent); border-color: var(--accent); }
+.earlier { margin: 0 16px 10px 64px; }
+.earlier > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; width: max-content; }
+.earlier > summary:hover { color: var(--text); }
+.earlier .slot-row { padding-left: 0; padding-right: 0; }
 .slot-warning { margin: 4px 16px 6px 64px; border-left-color: var(--bad); background: #ff6b6b14; }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
@@ -253,5 +257,6 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
   /* Narrow: label and details on their own lines, then the buttons in one row. */
   .slot-row { grid-template-columns: auto auto auto 1fr; padding-left: 16px; }
   .when-label, .slot-row > div:nth-child(2) { grid-column: 1 / -1; }
+  .earlier, .slot-warning { margin-left: 16px; }
   .verify-result { padding-left: 0; }
 }
