@@ -159,10 +159,25 @@ function slotGroups(slots) {
   return [...groups].map(([slot, saves]) => ({ slot, saves: saves.sort((x, y) => savedAt(y) - savedAt(x)) }));
 }
 
+// Slots whose saves share a save id with another slot: the game treats them as one
+// save in two places and shows a "multiple versions of this save" conflict.
+function duplicateSlots(slots) {
+  const byId = new Map();
+  for (const s of slots) {
+    if (!s.universalId) continue;
+    if (!byId.has(s.universalId)) byId.set(s.universalId, new Set());
+    byId.get(s.universalId).add(s.slot);
+  }
+  const dup = new Map();
+  for (const set of byId.values()) if (set.size > 1) for (const n of set) dup.set(n, [...set].filter((m) => m !== n));
+  return dup;
+}
+
 function renderSlotGroup(a, { slot, saves }) {
   const latest = saves[0];
   const title = latest.name || `Save slot ${slot}`;
   const tags = [latest.difficulty, latest.season ? 'Expedition' : null].filter(Boolean);
+  const sameAs = duplicateSlots(a.slots).get(slot);
   return `
     <div class="slot-group">
       <div class="slot-head">
@@ -172,7 +187,8 @@ function renderSlotGroup(a, { slot, saves }) {
           <div class="muted">${playTime(latest.playTime) ? `${playTime(latest.playTime)} played · ` : ''}last saved ${savedAt(latest).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</div>
         </div>
       </div>
-      ${saves.map((s, i) => renderSaveRow(a, s, i === 0 ? 'Latest' : `${gap(savedAt(saves[0]) - savedAt(s))} earlier`)).join('')}
+      ${sameAs ? `<div class="warnings slot-warning">Same save as slot ${sameAs.join(', ')}. The game will report a cross-save conflict. Restore the slot that was overwritten from Backups, or delete one copy from the game’s own load menu.</div>` : ''}
+      ${saves.map((s, i) => renderSaveRow(a, s, i === 0 ? 'Latest' : `Earlier save · ${gap(savedAt(saves[0]) - savedAt(s))} before`)).join('')}
     </div>`;
 }
 
@@ -180,7 +196,9 @@ function renderSaveRow(a, s, label) {
   const vr = state.verify[`${a.id}/${s.file}`];
   return `
     <div class="slot-row">
-      <div class="when-label ${label === 'Latest' ? 'latest' : ''}">${esc(label)}</div>
+      <div class="when-label ${label === 'Latest' ? 'latest' : ''}" title="${label === 'Latest'
+        ? 'The save the game loads for this slot'
+        : 'The game keeps two saves in every slot: the latest and an earlier one. This is the earlier one; the game loads the latest.'}">${esc(label)}</div>
       <div>${esc(s.summary ?? s.error ?? 'Unknown location')}
         <div class="when">${savedAt(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${playTime(s.playTime) ? ` · ${playTime(s.playTime)}` : ''} · <span class="mono">${esc(s.file)}</span></div></div>
       <button class="btn small" data-action="verify" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Prove the save can be rewritten without changing a byte">Verify</button>
@@ -567,7 +585,13 @@ async function runSlotOp(d) {
   const targetExists = $('#slot-target')?.selectedOptions[0]?.dataset.exists === '1';
   const what = { copy: `Copy ${d.file} to ${to}`, move: `Move ${d.file} to ${to}`, swap: `Swap ${d.file} and ${to}`, delete: `Delete ${d.file}` }[d.op];
   const overwrite = (d.op === 'copy' || d.op === 'move') && targetExists ? ` This replaces the save in ${to}.` : '';
-  if (!confirm(`${what}?${overwrite} A backup is taken first.`)) return;
+  const separate = d.op === 'copy' || d.op === 'move' ? ' Placed in another slot, it gets a new save ID so the game treats it as a separate save.' : '';
+  // Steam Cloud re-downloads files deleted outside the game the next time it syncs.
+  const isSteam = state.accounts.find((a) => a.id === d.account)?.kind === 'Steam';
+  const cloud = isSteam && (d.op === 'delete' || d.op === 'move')
+    ? `\n\nSteam Cloud may bring back ${d.file} the next time the game starts. To delete a save for good, delete it from the game’s own load menu.`
+    : '';
+  if (!confirm(`${what}?${overwrite}${separate} A backup is taken first.${cloud}`)) return;
   await run(async () => {
     const r = await api('/api/slot', { account: d.account, op: d.op, from: d.file, to });
     closeModal();

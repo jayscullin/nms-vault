@@ -57,11 +57,25 @@ function peekSummary(text) {
     savedAt: ps.TimeStamp > 0 ? new Date(ps.TimeStamp * 1000).toISOString() : null,
     difficulty: ps.DifficultyState?.Preset?.DifficultyPresetType ?? null,
     season: common.SeasonData?.SeasonId > 0 ? common.SeasonData.SeasonId : null,
+    universalId: typeof common.SaveUniversalId === 'string' ? common.SaveUniversalId : null,
     platform: str(t.Platform),
   };
 }
 
 const summaryCache = new Map();
+
+// Save time recorded in a Frontiers-era (format 2002+) manifest, as the game shows it.
+const META_SAVED_AT = 0x164;
+function manifestSavedAt(metaPath, file) {
+  try {
+    const plain = decryptMeta(fs.readFileSync(metaPath), archiveNumberFor(file));
+    if (plain.readUInt32LE(0) !== META_MAGIC || plain.readUInt32LE(4) < 2002 || plain.length < META_SAVED_AT + 4) return null;
+    const seconds = plain.readUInt32LE(META_SAVED_AT);
+    return seconds > 1e9 && seconds < 4e9 ? new Date(seconds * 1000).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
 
 export function listAccounts() {
   const accounts = [];
@@ -86,7 +100,12 @@ export function listAccounts() {
             }
             summaryCache.set(cacheKey, info);
           }
-          return { file, slot: slotOf(file), size: stat.size, mtime: stat.mtime.toISOString(), hasManifest: fs.existsSync(path.join(dir, `mf_${file}`)), ...info };
+          const listed = { file, slot: slotOf(file), size: stat.size, mtime: stat.mtime.toISOString(), hasManifest: fs.existsSync(path.join(dir, `mf_${file}`)), ...info };
+          // The game shows (and loads) whichever of a slot's two saves has the newer
+          // manifest time, which can differ from the time inside the save.
+          const shown = manifestSavedAt(path.join(dir, `mf_${file}`), file);
+          if (shown) listed.savedAt = shown;
+          return listed;
         })
         .sort((a, b) => archiveNumberFor(a.file) - archiveNumberFor(b.file));
       accounts.push({
@@ -588,6 +607,56 @@ function rekeyed(account, from, to) {
   return { data, meta };
 }
 
+// The game identifies a save by CommonStateData.SaveUniversalId (newer saves only).
+// Two slots with the same id are "multiple versions of this save" to the game, so a
+// copy placed in another slot gets a fresh id. Newer manifests repeat the id at a
+// fixed spot (little-endian u64), so it is replaced there too.
+const UNIVERSAL_ID = /^0x[0-9A-F]{16}$/i;
+const idBytes = (hex) => {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(BigInt(hex));
+  return b;
+};
+
+function withNewIdentity(account, from, to) {
+  const savePath = path.join(account.dir, from);
+  const buf = fs.readFileSync(savePath);
+  const d = decodeSave(buf);
+  const readable = deobfuscate(d.text, mapping);
+  const tree = parse(readable);
+  const oldId = tree.CommonStateData?.SaveUniversalId;
+  if (typeof oldId !== 'string' || !UNIVERSAL_ID.test(oldId)) return { ...rekeyed(account, from, to), newId: null };
+  const newId = `0x${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
+  tree.CommonStateData.SaveUniversalId = newId;
+
+  const newReadable = stringify(tree);
+  const { unexpected } = diffTrees(parse(readable), parse(newReadable), [['CommonStateData', 'SaveUniversalId']]);
+  if (unexpected.length) throw new Error('Changing the save id altered other data');
+  const text = obfuscate(newReadable, mapping);
+  if (deobfuscate(text, mapping) !== newReadable) throw new Error('Keys did not translate back exactly');
+  const data = encodeSave(text, { compressed: d.compressed });
+  if (decodeSave(data).text !== text) throw new Error('Re-encoded save did not decode exactly');
+
+  const meta = readMeta(path.join(account.dir, `mf_${from}`), from, d.text.length, buf.length);
+  if (!meta) return { data, meta: null, newId };
+  if (!meta.magic || !meta.sizeOk) throw new OpError(`The manifest for ${from} isn't recognised`);
+  const plain = Buffer.from(meta.dec);
+  for (const w of meta.decWords) plain.writeUInt32LE(text.length + 1, w * 4);
+  for (const w of meta.compWords) plain.writeUInt32LE(data.length, w * 4);
+  const oldBytes = idBytes(oldId);
+  const at = plain.indexOf(oldBytes);
+  if (at !== -1) {
+    if (plain.indexOf(oldBytes, at + 1) !== -1) throw new OpError(`The manifest for ${from} holds its save id more than once; not changing it`);
+    idBytes(newId).copy(plain, at);
+  }
+  const enc = encryptMeta(plain, archiveNumberFor(to));
+  if (!decryptMeta(enc, archiveNumberFor(to)).equals(plain)) throw new Error('Re-keyed manifest did not verify');
+  return { data, meta: enc, newId };
+}
+
+const partnerOf = (file) => SLOT_FILES[SLOT_FILES.indexOf(file) ^ 1];
+const slotNumber = (file) => Math.floor(SLOT_FILES.indexOf(file) / 2) + 1;
+
 async function writePair(account, file, { data, meta }) {
   await writeAtomic(path.join(account.dir, file), data);
   if (meta) await writeAtomic(path.join(account.dir, `mf_${file}`), meta);
@@ -608,12 +677,19 @@ export async function slotOp(accountId, op, from, to) {
   if (op !== 'delete' && (!SLOT_FILES.includes(to) || to === from)) throw new OpError('Choose a different target slot');
   if (op === 'swap' && !exists(to)) throw new OpError('Swap needs a save in both places; use Move instead');
   if (!['copy', 'move', 'swap', 'delete'].includes(op)) throw new OpError(`Unknown slot operation ${op}`);
+  // A slot's two files are the same game (its latest and earlier saves). Copying or
+  // moving into a slot whose other file holds a different save would mix two games.
+  const otherSlot = op !== 'delete' && slotNumber(to) !== slotNumber(from);
+  if ((op === 'copy' || op === 'move') && otherSlot && exists(partnerOf(to)) && partnerOf(to) !== from) {
+    throw new OpError(`Slot ${slotNumber(to)} already holds another save in ${partnerOf(to)}; choose an empty slot`);
+  }
   if (isGameRunning()) throw new OpError('Close No Man’s Sky first');
 
   const involved = op === 'delete' ? [from] : [from, to];
   const backupDir = await backupFiles(account, involved, `Before ${op} ${involved.join(' → ')}`);
-  // Read everything before writing anything.
-  const fromPair = op === 'delete' ? null : rekeyed(account, from, to);
+  // Read everything before writing anything. A copy or move into another slot becomes a
+  // separate save with its own id, so the game never sees two slots as one save.
+  const fromPair = op === 'delete' ? null : (op === 'copy' || op === 'move') && otherSlot ? withNewIdentity(account, from, to) : rekeyed(account, from, to);
   const toPair = op === 'swap' ? rekeyed(account, to, from) : null;
   try {
     if (op === 'delete') await removePair(account, from);
@@ -629,7 +705,12 @@ export async function slotOp(accountId, op, from, to) {
     throw new Error(`${e.message}; original files restored`);
   }
   const verified = involved.filter(exists).map((f) => verifyRoundTrip(accountId, f));
-  return { backupDir, verified: verified.every((v) => v.ok), checks: verified.flatMap((v) => v.checks.map((c) => ({ ...c, name: `${v.file}: ${c.name}` }))) };
+  return {
+    backupDir,
+    newId: fromPair?.newId ?? null,
+    verified: verified.every((v) => v.ok),
+    checks: verified.flatMap((v) => v.checks.map((c) => ({ ...c, name: `${v.file}: ${c.name}` }))),
+  };
 }
 
 // ---- Export -----------------------------------------------------------------

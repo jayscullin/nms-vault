@@ -20,7 +20,10 @@ Needs Node 22+ and has no dependencies.
 - **Technology:** recharge tech the game data marks as chargeable, repair damaged tech, and remove tech that isn't core. Core tech is what the game won't let you dismantle (Life Support, Launch Thruster, Pulse Engine and so on), and it can't be removed. Broken-slot placeholders on salvaged multi-tools and ships can be removed, which frees the slot. Both flags come from the game's technology table, and if they can't be read, those edits are disabled.
 - **Account rewards:** unlock expedition rewards, Twitch rewards, Quicksilver shop items and player titles for the whole account, as NomNom does. Only entries in the game's own tables can be unlocked, the lists keep the game's order, and nothing else in `accountdata.hg` changes. It goes through the same review, backup and verification as saves.
 - **Knowledge (per save):** learn every word for the Gek, Vy'keen, Korvax, Atlas or Autophage, and learn blueprints from the game's unlockable blueprint trees (all, filtered, or picked one by one).
-- **Save slots:** copy, move, swap or delete saves between slots. The save data is copied unchanged, the manifest is re-keyed for its new file name, the slots involved are backed up together first, and the result is verified.
+- **Save slots:** copy, move, swap or delete saves between slots. The slots involved are backed up together first, and the result is verified.
+  - A save copied or moved into another slot gets a new save ID (in the save and its manifest). Without one, the game sees two slots as "multiple versions of this save" and shows a cross-save conflict. The home screen flags any slots that share an ID.
+  - Each slot holds two saves. The game shows and loads the one with the newer manifest time, and NMS Vault orders them the same way.
+  - With Steam Cloud on, saves deleted or moved outside the game can come back the next time the game starts. Delete saves from the game's load menu if you want them gone for good.
 - **Export** any save as indented JSON with readable keys, for reading. It can't be imported back.
 - **Item catalogue:** browse and search every item in your installed game, with descriptions, stack multipliers and technology flags. No save needed.
 - Undo, discard, and a review screen before anything is written.
