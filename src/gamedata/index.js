@@ -34,8 +34,39 @@ export function describe(saveId) {
   if (!db?.available) return null;
   const r = resolveItem(db.items, saveId);
   if (!r) return null;
-  return { key: r.key, name: r.name, subtitle: r.subtitle, desc: r.desc, icon: Boolean(r.icon), generic: r.generic };
+  return { key: r.key, name: r.name, subtitle: r.subtitle, desc: r.desc, icon: Boolean(r.icon), generic: r.generic, core: r.core, chargeable: r.chargeable };
 }
+
+// Facts the edit rules need about an item, or null when the game data has no entry.
+export function itemInfo(saveId) {
+  if (!db?.available) return null;
+  const r = resolveItem(db.items, saveId);
+  return r && { key: r.key, type: r.type, stack: r.stack, core: r.core, chargeable: r.chargeable, procedural: Boolean(r.procedural), alias: r.alias ?? null };
+}
+
+// Items that can be added as new stacks: named, non-procedural products and
+// substances with a known stack multiplier.
+const addable = (item) =>
+  (item.type === 'Product' || item.type === 'Substance') && item.name && !item.procedural && !item.alias && item.stack !== undefined;
+
+export function searchItems(query, limit = 40) {
+  if (!db?.available) return [];
+  const q = String(query ?? '').trim().toLowerCase();
+  const hits = [];
+  for (const [id, item] of Object.entries(db.items)) {
+    if (!addable(item)) continue;
+    const name = item.name.toLowerCase();
+    const rank = !q ? 2 : name.startsWith(q) ? 0 : name.includes(q) ? 1 : id.toLowerCase().includes(q) ? 2 : -1;
+    if (rank >= 0) hits.push({ rank, id, name: item.name, subtitle: item.subtitle, type: item.type, icon: Boolean(item.icon) });
+  }
+  hits.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  return hits.slice(0, limit);
+}
+
+export const isAddable = (saveId) => {
+  const r = db?.available && resolveItem(db.items, saveId);
+  return Boolean(r && addable(r));
+};
 
 // The game's rule-based stack limit for an item in a stack group, or null if unknown.
 export function stackRule(saveId, type, group, difficulty) {

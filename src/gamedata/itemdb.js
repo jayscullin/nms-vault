@@ -9,7 +9,7 @@ import { readTable } from './mbin.js';
 import { readStackBases, readMultipliers, MULTIPLIER_OFFSETS } from './stacks.js';
 
 const TABLES = 'metadata/reality/tables/';
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 const SOURCES = [
   { file: 'nms_reality_gcsubstancetable.mbin', type: 'Substance' },
   { file: 'nms_reality_gcproducttable.mbin', type: 'Product' },
@@ -171,8 +171,15 @@ export function buildItemDb(archives) {
     });
     report.push({ table: src.file, records: table.count, named, columns: col, multipliers: Boolean(multipliers) });
     if (src.procedural) borrowIcons(table, col, items);
+    if (src.file === CORE_FLAG.file) report.push(readCoreFlags(table, col, items));
+    // Procedural upgrades are never core technology and hold no charge.
+    if (src.procedural && src.type === 'Technology') table.records.forEach((rec) => {
+      const item = items[rec.find((x) => x.off === col.id)?.s];
+      if (item) Object.assign(item, { core: false, chargeable: false });
+    });
   }
   report.push(addProceduralProducts(archives, items));
+  report.push(addTechBoxes(archives, items));
 
   let stackBases = null;
   try {
@@ -204,7 +211,76 @@ function addProceduralProducts(archives, items) {
     items[id] = { type: 'Product', name: category, subtitle: 'Procedurally named in game', desc: null, icon: null, stack: 0, procedural: true, generic: true };
     added++;
   }
+  // Uninstalled upgrade modules of unknown class (UP_FRHYP) become a numbered
+  // technology (UP_FRHYP1..4) when installed; they share that technology's name.
+  for (const m of text.matchAll(/(UP_[A-Z0-9_]+)\0/g)) {
+    const id = m[1];
+    const installed = items[`${id}1`];
+    if (items[id] || !installed?.name) continue;
+    items[id] = { type: 'Product', name: installed.name, subtitle: `${installed.subtitle ?? 'Upgrade module'} (uninstalled)`, desc: installed.desc, icon: installed.icon, procedural: true, alias: `${id}1` };
+    added++;
+  }
   return { table: 'proceduralproducttable.mbin', added };
+}
+
+// The tech-box table pairs a technology with the product it is packaged as
+// (UT_LAUNCHCHARGE <-> UP_T_LAUNCHCHAR). The product takes the technology's name.
+function addTechBoxes(archives, items) {
+  const file = TABLES + 'techboxtable.mbin';
+  const pak = archives.find(file);
+  if (!pak) return { table: 'techboxtable.mbin', error: 'missing' };
+  let table;
+  try {
+    table = readTable(pak.read(file));
+  } catch (e) {
+    return { table: 'techboxtable.mbin', error: e.message };
+  }
+  let added = 0;
+  for (const rec of table.records) {
+    const ids = rec.filter((x) => !x.line && /^[A-Z0-9_]+$/.test(x.s)).map((x) => x.s);
+    const tech = ids.find((id) => items[id]?.type === 'Technology');
+    const product = ids.find((id) => id !== tech && !items[id]);
+    if (!tech || !product) continue;
+    const t = items[tech];
+    items[product] = { type: 'Product', name: t.name, subtitle: 'Packaged technology', desc: t.desc, icon: t.icon, alias: tech };
+    added++;
+  }
+  return { table: 'techboxtable.mbin', added };
+}
+
+// Boolean flags in each technology record (a byte at a fixed offset):
+//   core        can't be dismantled in game (Life Support, Launch Thruster, ...)
+//   chargeable  uses charge that can be refilled (Life Support, Mining Beam, ...)
+// A flag is only trusted if the column looks boolean, is set for known examples
+// and clear for known counter-examples. Otherwise it stays unknown for every
+// item, and NMS Vault refuses the edits that depend on it.
+const CORE_FLAG = { file: 'nms_reality_gctechnologytable.mbin' };
+const TECH_FLAGS = [
+  { name: 'core', offset: 715, on: ['LAUNCHER', 'ENERGY', 'SHIPJUMP1', 'PROTECT', 'HYPERDRIVE'], off: ['UT_PROTECT', 'UT_JUMP', 'UT_TRANSLATE1'] },
+  { name: 'chargeable', offset: 710, on: ['ENERGY', 'PROTECT', 'LAUNCHER', 'SHIPJUMP1', 'SHIPSHIELD', 'LASER'], off: ['JET1', 'SUMMON_SUIT', 'ATLASSUIT', 'UT_PROTECT'] },
+];
+
+function readCoreFlags(table, col, items) {
+  const ids = table.records.map((rec) => rec.find((x) => x.off === col.id)?.s);
+  const result = { table: CORE_FLAG.file };
+  for (const flag of TECH_FLAGS) {
+    const values = ids.map((_, r) => table.buf[table.start + r * table.size + flag.offset]);
+    const at = (id) => values[ids.indexOf(id)];
+    const looksRight =
+      flag.offset < table.size &&
+      values.every((v) => v === 0 || v === 1) &&
+      flag.on.every((id) => at(id) === 1) &&
+      flag.off.every((id) => at(id) === 0);
+    if (!looksRight) {
+      result[flag.name] = 'not recognised; edits that need it are disabled';
+      continue;
+    }
+    ids.forEach((id, r) => {
+      if (items[id]) items[id][flag.name] = values[r] === 1;
+    });
+    result[flag.name] = values.filter((v) => v === 1).length;
+  }
+  return result;
 }
 
 // Resolves a save item id ("^UP_HOT3#17498", "^FUEL1") to its database entry.

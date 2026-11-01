@@ -156,6 +156,7 @@ export function inventoryView(tree, info) {
       amount: num(s.Amount),
       max: num(s.MaxAmount),
       damage: num(s.DamageFactor),
+      installed: s.FullyInstalled !== false,
     })),
   };
 }
@@ -211,12 +212,65 @@ function amountInt(value, min, max, what) {
 
 // Applies one op to the tree in place. Returns { touched: [path...], warnings: [] }.
 // Callers apply ops to a scratch tree; on OpError the tree may be partially modified.
-// `stacks.limitFor(slot, inv)` gives the game's stack limit for a slot in an
-// inventory, or null when it cannot be confirmed. Stack limits are never edited;
-// they only change when an item moves to an inventory with a different limit.
+// `stacks` supplies the game's rules:
+//   limitFor(slot, inv)  the game's stack limit for a slot in an inventory, or null
+//                        when it cannot be confirmed. Stack limits are never edited;
+//                        they only change when an item moves to another inventory.
+//   item(id)             game-data facts about an item ({ type, core, ... }) or null
+//   template(type)       a slot of that type from this save, used as the shape of new slots
 export function applyOp(tree, cat, stacks, op) {
   const warnings = [];
   switch (op?.op) {
+    case 'add': {
+      const loc = locate(tree, cat, op);
+      if (loc.slot) throw new OpError('That cell is already occupied');
+      assertCellUsable(loc);
+      if (!BULK.has(loc.info.kind)) throw new OpError(`${loc.info.where} can't receive items`);
+      const id = String(op.id ?? '').replace(/^\^/, '');
+      if (!/^[A-Z0-9_]+$/.test(id)) throw new OpError('Unknown item');
+      const info = stacks.item(`^${id}`);
+      if (!info || !stacks.addable(`^${id}`)) throw new OpError(`^${id} can't be added: only named products and substances from the game data can be`);
+      // Copy a real slot from this save so new slots have exactly the fields this game version writes.
+      const template = stacks.template(info.type);
+      if (!template) throw new OpError(`There is no ${info.type.toLowerCase()} anywhere in this save to copy the slot format from`);
+      const slot = parse(stringify(template));
+      slot.Id = `^${id}`;
+      const limit = stacks.limitFor(slot, loc.inv);
+      if (limit === null) throw new OpError(`Can't confirm the game's stack limit for ^${id} in ${loc.info.where}`);
+      const n = amountInt(op.amount, 1, limit, 'Amount');
+      slot.Amount = setNum(slot.Amount, n);
+      slot.MaxAmount = setNum(slot.MaxAmount, limit);
+      slot.DamageFactor = setNum(slot.DamageFactor, 0);
+      slot.FullyInstalled = true;
+      if ('AddedAutomatically' in slot) slot.AddedAutomatically = false;
+      setIndex(slot, loc.x, loc.y);
+      loc.inv.Slots.push(slot);
+      return { touched: [[...loc.info.path, 'Slots']], warnings };
+    }
+    case 'recharge': {
+      const loc = locate(tree, cat, op);
+      if (!loc.slot || isBulkItem(loc.slot)) throw new OpError('Only technology can be recharged');
+      const max = num(loc.slot.MaxAmount);
+      // Only tech the game data marks as chargeable; a charge of -1 also means "no charge".
+      const chargeable = stacks.item(loc.slot.Id)?.chargeable;
+      if (chargeable === undefined) throw new OpError(`Can't confirm whether ${toDisplay(loc.slot.Id)} uses charge`);
+      if (!chargeable || num(loc.slot.Amount) < 0 || max <= 0) throw new OpError('This technology doesn’t use charge');
+      if (num(loc.slot.DamageFactor) > 0) throw new OpError('Repair it before recharging');
+      if (num(loc.slot.Amount) >= max) throw new OpError('Already fully charged');
+      loc.slot.Amount = setNum(loc.slot.Amount, max);
+      return { touched: [[...loc.info.path, 'Slots']], warnings };
+    }
+    case 'repair': {
+      const loc = locate(tree, cat, op);
+      if (!loc.slot || isBulkItem(loc.slot)) throw new OpError('Only technology can be repaired');
+      if (num(loc.slot.DamageFactor) <= 0) throw new OpError('This technology isn’t damaged');
+      // Damaged tech is marked not fully installed; installed items at full damage are
+      // salvage placeholders for broken slots, which the game removes on repair instead.
+      if (loc.slot.FullyInstalled !== false) throw new OpError('This is a damaged-slot placeholder; remove it instead of repairing');
+      loc.slot.DamageFactor = setNum(loc.slot.DamageFactor, 0);
+      loc.slot.FullyInstalled = true;
+      return { touched: [[...loc.info.path, 'Slots']], warnings };
+    }
     case 'setAmount': {
       const loc = locate(tree, cat, op);
       if (!loc.slot) throw new OpError('That cell is empty');
@@ -228,7 +282,11 @@ export function applyOp(tree, cat, stacks, op) {
     case 'remove': {
       const loc = locate(tree, cat, op);
       if (!loc.slot) throw new OpError('That cell is empty');
-      if (!isBulkItem(loc.slot)) throw new OpError('Technology removal is not supported');
+      if (!isBulkItem(loc.slot)) {
+        const core = stacks.item(loc.slot.Id)?.core;
+        if (core === true) throw new OpError('Core technology can’t be removed; the game doesn’t allow dismantling it');
+        if (core !== false) throw new OpError(`Can't confirm whether ${toDisplay(loc.slot.Id)} is core technology, so it stays installed`);
+      }
       loc.inv.Slots.splice(loc.index, 1);
       return { touched: [[...loc.info.path, 'Slots']], warnings };
     }

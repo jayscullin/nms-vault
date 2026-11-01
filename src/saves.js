@@ -12,7 +12,7 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems } from './gamedata/index.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 export const mapping = loadMapping(path.join(here, '..', 'data', 'mapping.json'));
@@ -169,12 +169,14 @@ function stackPolicy(tree, containers) {
   const difficulty = ps.DifficultyState?.Settings?.InventoryStackLimits?.InventoryStackLimitsDifficulty ?? 'Normal';
   const written = new Map();
   const groups = new Map();
+  const templates = new Map(); // first slot of each type, the shape for new slots
   for (const c of containers) {
     for (const info of c.inventories) {
       const inv = get(tree, info.path);
       const group = stackGroupOf(inv);
       for (const slot of inv.Slots) {
         const type = slot.Type?.InventoryType;
+        if (!templates.has(type)) templates.set(type, slot);
         if (type !== 'Product' && type !== 'Substance') continue;
         const max = num0(slot.MaxAmount);
         const key = `${group}|${slot.Id}`;
@@ -204,6 +206,9 @@ function stackPolicy(tree, containers) {
     // Whether any item of this type has a confirmed limit in this group. Items the
     // game already stores in the group are also allowed (see limitFor).
     trusted,
+    item: itemInfo,
+    addable: isAddable,
+    template: (type) => templates.get(type) ?? null,
     limitFor(slot, inv) {
       const group = stackGroupOf(inv);
       const type = slot.Type?.InventoryType;
@@ -311,6 +316,17 @@ export function sessionView(s) {
 
 const num0 = (v) => (JSON.isRawJSON(v) ? Number(v.rawJSON) : v);
 
+// Items that can be added to an inventory, with the stack limit each would get there.
+export function addableItems(s, invId, query) {
+  const info = s.cat.inventories.get(invId);
+  if (!info) throw new OpError('Unknown inventory');
+  const inv = get(s.work, info.path);
+  return searchItems(query).map((item) => {
+    const limit = s.stacks.limitFor({ Id: `^${item.id}`, Type: { InventoryType: item.type } }, inv);
+    return { ...item, limit, reason: limit === null ? `The game’s stack limit for this item in ${info.where} can’t be confirmed` : undefined };
+  });
+}
+
 // Item ids in messages ("^GEODE_LAND") become their in-game names where known.
 const nameIds = (text) => text.replace(/\^[A-Z0-9_]+(?:#\d+)?/g, (id) => describe(id)?.name ?? id);
 
@@ -321,7 +337,10 @@ function opScope(s, op) {
   const inv = (id) => s.cat.inventories.get(id)?.path;
   switch (op?.op) {
     case 'setAmount':
-    case 'remove': return [inv(op.inv)];
+    case 'remove':
+    case 'add':
+    case 'recharge':
+    case 'repair': return [inv(op.inv)];
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];
     case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
     case 'rename': return [s.cat.names.get(op.target)];

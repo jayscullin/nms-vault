@@ -327,9 +327,19 @@ function renderItems() {
 function renderDetails() {
   const inv = state.slot && findInv(state.slot.inv);
   const s = inv && slotAt(inv, state.slot.x, state.slot.y);
+  if (inv && !s) {
+    const canAdd = BULK.has(inv.kind);
+    return `<aside class="details">
+      <h3>Empty cell</h3>
+      <dl><dt>Location</dt><dd>${esc(inv.container.title)} · ${esc(inv.label)}</dd><dt>Cell</dt><dd>${state.slot.x}, ${state.slot.y}</dd></dl>
+      ${canAdd
+        ? '<div class="stack"><button class="btn primary" data-action="add-item">Add item…</button></div>'
+        : `<div class="note">${esc(inv.label)} inventories only hold items the game installs, so new items can’t be added here.</div>`}
+    </aside>`;
+  }
   if (!s) {
-    return `<aside class="details"><p class="muted">Select an item to edit it. Drag items between cells, or onto a container in the sidebar to transfer them.</p>
-      <div class="note">Technology can be rearranged within its own grid but not moved elsewhere or deleted, which keeps installed tech and upgrades consistent.</div></aside>`;
+    return `<aside class="details"><p class="muted">Select an item to edit it, or an empty cell to add one. Drag items between cells, or onto a container in the sidebar to transfer them.</p>
+      <div class="note">Technology can be rearranged within its own grid, recharged, repaired, or removed if it isn’t core technology. It can’t be moved to another inventory.</div></aside>`;
   }
   const bulk = s.type !== 'Technology';
   const meta = info(s.id);
@@ -361,9 +371,63 @@ function renderDetails() {
               <button class="btn" data-action="fill" ${s.amount >= s.max ? 'disabled' : ''}>Fill stack (${fmt(s.max)})</button>
               <button class="btn danger" data-action="remove">Remove item</button>
             </div>`
-          : '<div class="note">Technology is read-only apart from rearranging it within this grid.</div>'
+          : techActions(s, meta)
       }
     </aside>`;
+}
+
+// Technology buttons, offered only where the game data allows the edit.
+function techActions(s, meta) {
+  const placeholder = s.damage > 0 && s.installed;
+  const buttons = [];
+  if (meta?.chargeable && s.amount >= 0 && s.max > 0 && s.damage === 0) {
+    buttons.push(`<button class="btn" data-action="recharge" ${s.amount >= s.max ? 'disabled' : ''}>Recharge (${fmt(s.max)})</button>`);
+  }
+  if (s.damage > 0 && !s.installed) buttons.push('<button class="btn" data-action="repair">Repair</button>');
+  if (meta?.core === false) buttons.push(`<button class="btn danger" data-action="remove">${placeholder ? 'Remove broken part' : 'Remove technology'}</button>`);
+  const notes = [];
+  if (meta?.core === true) notes.push('Core technology: the game doesn’t allow dismantling it, so it can’t be removed.');
+  if (meta?.core === undefined) notes.push('Can’t confirm from the game data whether this is core technology, so it can’t be removed.');
+  if (placeholder) notes.push('This is a placeholder for a broken slot. The game removes it on repair, so removing it frees the slot.');
+  if (meta?.chargeable === false && s.amount >= 0 && !placeholder) notes.push('This technology doesn’t use charge.');
+  return `${buttons.length ? `<div class="stack">${buttons.join('')}</div>` : ''}${notes.map((n) => `<div class="note">${esc(n)}</div>`).join('')}`;
+}
+
+// ---- add item ----------------------------------------------------------------
+
+async function openAddItem() {
+  const target = { ...state.slot };
+  const inv = findInv(target.inv);
+  modal(`
+    <h2>Add item</h2>
+    <p class="muted">To ${esc(inv.container.title)} · ${esc(inv.label)}, cell ${target.x}, ${target.y}. Stack limits come from the game.</p>
+    <input type="search" id="add-search" class="add-search" placeholder="Search by name or ID…" autocomplete="off" aria-label="Search items">
+    <ul id="add-results" class="add-results"></ul>
+    <footer><button class="btn" data-action="close-modal">Cancel</button></footer>`);
+  const box = $('#add-search');
+  let timer;
+  const search = async () => {
+    const results = await api('/api/catalog', { sessionId: state.view.sessionId, inv: target.inv, q: box.value });
+    $('#add-results').innerHTML = results.length
+      ? results
+          .map((r) => `
+        <li class="add-row ${r.limit === null ? 'unavailable' : ''}" ${r.reason ? `title="${esc(r.reason)}"` : ''}>
+          ${r.icon ? `<img class="thumb" src="/icons/${encodeURIComponent(r.id)}.png" alt="" loading="lazy">` : '<span class="thumb"></span>'}
+          <div class="add-name"><b>${esc(r.name)}</b><div class="muted small">${esc(r.subtitle ?? r.type)} · <span class="mono">${esc(r.id)}</span></div></div>
+          ${r.limit === null
+            ? '<span class="muted small">limit unknown</span>'
+            : `<input type="number" min="1" max="${r.limit}" value="${r.limit}" aria-label="Amount of ${esc(r.name)}" data-add-amount="${esc(r.id)}">
+               <button class="btn small primary" data-action="add-confirm" data-id="${esc(r.id)}" data-inv="${esc(target.inv)}" data-x="${target.x}" data-y="${target.y}">Add</button>`}
+        </li>`)
+          .join('')
+      : '<li class="muted">No matching items.</li>';
+  };
+  box.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => run(search), 150);
+  });
+  box.focus();
+  await run(search);
 }
 
 function renderEditor() {
@@ -403,6 +467,9 @@ function describeOp(op) {
     case 'move': return `Move item from ${at(op.from)} to ${at(op.to)}`;
     case 'setCurrency': return `Set ${CURRENCY_LABELS[op.field]} to ${fmt(op.value)}`;
     case 'rename': return `Rename to “${op.name}”`;
+    case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
+    case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
+    case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
     default: return op.op;
   }
 }
@@ -496,7 +563,8 @@ document.addEventListener('click', async (e) => {
     const inv = findInv(cell.dataset.inv);
     const x = Number(cell.dataset.x);
     const y = Number(cell.dataset.y);
-    state.slot = slotAt(inv, x, y) ? { inv: inv.id, x, y } : null;
+    // Filled cells and empty unlocked cells can be selected (an empty one to add an item).
+    state.slot = slotAt(inv, x, y) || inv.valid.includes(`${x},${y}`) ? { inv: inv.id, x, y } : null;
     return render();
   }
 
@@ -542,8 +610,23 @@ document.addEventListener('click', async (e) => {
       const s = slotAt(findInv(state.slot.inv), state.slot.x, state.slot.y);
       return applyOp({ op: 'setAmount', ...state.slot, amount: s.max });
     }
-    case 'remove':
+    case 'remove': {
+      const s = slotAt(findInv(state.slot.inv), state.slot.x, state.slot.y);
+      if (s?.type === 'Technology' && !confirm(`Remove ${itemName(s.id)}? It will be gone from the save once written (a backup is kept).`)) return;
       return applyOp({ op: 'remove', ...state.slot });
+    }
+    case 'recharge':
+    case 'repair':
+      return applyOp({ op: d.action, ...state.slot });
+    case 'add-item':
+      return openAddItem();
+    case 'add-confirm': {
+      const amount = Number($(`[data-add-amount="${CSS.escape(d.id)}"]`)?.value);
+      const before = state.view.ops;
+      await applyOp({ op: 'add', inv: d.inv, x: Number(d.x), y: Number(d.y), id: d.id, amount });
+      if (state.view.ops > before) closeModal();
+      return;
+    }
     case 'rename': {
       const name = prompt('New name', d.name);
       if (name === null || name === d.name) return;

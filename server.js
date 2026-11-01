@@ -30,6 +30,7 @@ const routes = {
     saves.addOp(s, b.op);
     return saves.sessionView(s);
   },
+  'POST /api/catalog': (b) => saves.addableItems(saves.getSession(b.sessionId), b.inv, b.q),
   'POST /api/undo': (b) => {
     const s = saves.getSession(b.sessionId);
     saves.undoOp(s);
