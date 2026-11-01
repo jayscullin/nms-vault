@@ -2,6 +2,7 @@
   "name": "nms-vault",
   "version": "0.1.0",
   "description": "Local, non-destructive inventory manager for No Man's Sky saves",
+  "license": "MIT",
   "type": "module",
   "private": true,
   "engines": {
