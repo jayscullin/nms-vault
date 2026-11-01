@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="vault-token" content="__VAULT_TOKEN__">
+  <title>NMS Vault</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" data-action="home" title="Choose a save">
+      <img src="icon.svg" alt="" width="22" height="22"><span>NMS Vault</span>
+    </button>
+    <div id="save-info" class="save-info"></div>
+    <div id="currencies" class="currencies"></div>
+    <div id="pending" class="pending"></div>
+  </header>
+  <div id="test-banner" class="test-banner" hidden></div>
+  <main id="app"></main>
+  <div id="modal-root"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="busy" hidden><span></span></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
