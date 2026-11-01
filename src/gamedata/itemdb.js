@@ -9,7 +9,7 @@ import { readTable } from './mbin.js';
 import { readStackBases, readMultipliers, MULTIPLIER_OFFSETS } from './stacks.js';
 
 const TABLES = 'metadata/reality/tables/';
-const DB_VERSION = 5;
+const DB_VERSION = 7;
 const SOURCES = [
   { file: 'nms_reality_gcsubstancetable.mbin', type: 'Substance' },
   { file: 'nms_reality_gcproducttable.mbin', type: 'Product' },
@@ -181,7 +181,10 @@ export function buildItemDb(archives) {
   report.push(addProceduralProducts(archives, items));
   report.push(addTechBoxes(archives, items));
   const rewards = readRewards(archives);
-  report.push({ table: 'rewards', season: rewards.season.length, twitch: rewards.twitch.length });
+  Object.assign(rewards, readUnlockables(archives, loc, items));
+  report.push({ table: 'rewards', ...Object.fromEntries(Object.entries(rewards).map(([k, v]) => [k, v.length])) });
+  const knowledge = readKnowledge(archives, items);
+  report.push({ table: 'knowledge', wordGroups: knowledge.wordGroups.length, blueprints: knowledge.blueprints.length });
 
   let stackBases = null;
   try {
@@ -189,7 +192,73 @@ export function buildItemDb(archives) {
   } catch (e) {
     report.push({ table: 'difficultyconfig.mbin', error: e.message });
   }
-  return { items, stackBases, rewards, report, languageKeys: loc.size };
+  return { items, stackBases, rewards, knowledge, report, languageKeys: loc.size };
+}
+
+// Printable runs of 3+ characters, in file order. Used for tables whose list
+// layout the generic reader doesn't handle.
+function stringRuns(buf) {
+  const runs = [];
+  let start = -1;
+  for (let i = 0; i <= buf.length; i++) {
+    const c = buf[i];
+    if (i < buf.length && c >= 0x20 && c < 0x7f) {
+      if (start < 0) start = i;
+    } else {
+      if (start >= 0 && i - start >= 3) runs.push(buf.toString('latin1', start, i));
+      start = -1;
+    }
+  }
+  return runs;
+}
+
+// More account-wide unlocks, same mechanism as expedition rewards:
+//   titles:   player titles (UnlockedTitles), named from the title data
+//   specials: Quicksilver shop items (UnlockedSpecials)
+function readUnlockables(archives, loc, items) {
+  const out = { titles: [], specials: [] };
+  const titleFile = 'metadata/gamestate/playerdata/playertitledata.mbin';
+  if (archives.find(titleFile)) {
+    // Each title: UI_TITLE_OWNED_x, UI_PLAYER_TITLE_x (name), UI_PLAYER_TDESC_x, T_x (id), ...
+    const runs = stringRuns(archives.read(titleFile));
+    const seen = new Set();
+    runs.forEach((r, i) => {
+      const id = runs[i + 2];
+      if (!r.startsWith('UI_PLAYER_TITLE_') || !/^T_[A-Z0-9_]+$/.test(id ?? '') || seen.has(id)) return;
+      seen.add(id);
+      // Titles wrap the player's name ("%NAME%, the Convergent"); show where it goes.
+      const name = loc.get(r);
+      out.titles.push({ id, item: id, name: name ? stripMarkup(name.replace(/%NAME%/g, '‹name›')) : null });
+    });
+  }
+  try {
+    const shop = readTable(archives.read(TABLES + 'purchaseablespecials.mbin'));
+    out.specials = shop.records.map((rec) => rec.find((x) => !x.line)?.s).filter(Boolean).map((id) => ({ id, item: id }));
+  } catch {}
+  return out;
+}
+
+// Per-save knowledge:
+//   wordGroups: every alien word group with its race (from the group id prefix)
+//   blueprints: items that appear in the game's unlockable blueprint trees
+export const WORD_RACES = { TRA: 0, WAR: 1, EXP: 2, ATLAS: 4, BUI: 8 };
+
+function readKnowledge(archives, items) {
+  const out = { wordGroups: [], blueprints: [] };
+  try {
+    const words = readTable(archives.read(TABLES + 'nms_dialog_gcalienspeechtable.mbin'));
+    const groups = new Set(words.records.map((rec) => rec.find((x) => x.off === 0 && !x.line)?.s).filter(Boolean));
+    for (const group of groups) {
+      const race = WORD_RACES[group.split('_')[0]];
+      if (race !== undefined) out.wordGroups.push({ group, race });
+    }
+  } catch {}
+  const trees = TABLES + 'unlockableitemtrees.mbin';
+  if (archives.find(trees)) {
+    const ids = new Set(stringRuns(archives.read(trees)).filter((s) => items[s] && (items[s].type === 'Product' || items[s].type === 'Technology')));
+    out.blueprints = [...ids];
+  }
+  return out;
 }
 
 // Account-wide unlockable rewards, in the game's table order (newest first).

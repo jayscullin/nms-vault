@@ -6,6 +6,8 @@ import { OpError } from './inventory.js';
 export const REWARD_LISTS = {
   season: { field: 'UnlockedSeasonRewards', label: 'Expedition rewards' },
   twitch: { field: 'UnlockedTwitchRewards', label: 'Twitch rewards' },
+  specials: { field: 'UnlockedSpecials', label: 'Quicksilver items' },
+  titles: { field: 'UnlockedTitles', label: 'Titles' },
 };
 
 const listPath = (key) => ['UserSettingsData', REWARD_LISTS[key].field];

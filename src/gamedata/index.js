@@ -48,11 +48,37 @@ export function itemInfo(saveId) {
 export function rewardCatalog() {
   if (!db?.available || !db.rewards) return null;
   const withInfo = (list) =>
-    list.map(({ id, item }) => {
+    (list ?? []).map(({ id, item, name }) => {
       const r = resolveItem(db.items, item);
-      return { id, item, key: r?.key ?? null, name: r?.name ?? null, subtitle: r?.subtitle ?? null, icon: Boolean(r?.icon) };
+      return { id, item, key: r?.key ?? null, name: name ?? r?.name ?? null, subtitle: r?.subtitle ?? (name ? 'Player title' : null), icon: Boolean(r?.icon) };
     });
-  return { season: withInfo(db.rewards.season), twitch: withInfo(db.rewards.twitch) };
+  return Object.fromEntries(['season', 'twitch', 'specials', 'titles'].map((k) => [k, withInfo(db.rewards[k])]));
+}
+
+// Per-save knowledge catalogue: word groups by race, and learnable blueprints with display info.
+export function knowledgeCatalog() {
+  if (!db?.available || !db.knowledge) return null;
+  return {
+    wordGroups: db.knowledge.wordGroups,
+    blueprints: db.knowledge.blueprints.map((id) => {
+      const r = resolveItem(db.items, id);
+      return { id, type: r?.type, name: r?.name ?? null, subtitle: r?.subtitle ?? null, icon: Boolean(r?.icon) };
+    }),
+  };
+}
+
+// Item catalogue for browsing without a save: every named item, any type.
+export function browseItems(query, type, limit = 200) {
+  if (!db?.available) return [];
+  const q = String(query ?? '').trim().toLowerCase();
+  const out = [];
+  for (const [id, item] of Object.entries(db.items)) {
+    if (!item.name || (type && item.type !== type)) continue;
+    if (q && !item.name.toLowerCase().includes(q) && !id.toLowerCase().includes(q)) continue;
+    out.push({ id, type: item.type, name: item.name, subtitle: item.subtitle, desc: item.desc, icon: Boolean(item.icon), stack: item.stack, core: item.core, chargeable: item.chargeable, procedural: Boolean(item.procedural) });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return { total: out.length, items: out.slice(0, limit) };
 }
 
 // Items that can be added as new stacks: named, non-procedural products and

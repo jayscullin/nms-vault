@@ -184,6 +184,7 @@ function renderSaveRow(a, s, label) {
       <div>${esc(s.summary ?? s.error ?? 'Unknown location')}
         <div class="when">${savedAt(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${playTime(s.playTime) ? ` · ${playTime(s.playTime)}` : ''} · <span class="mono">${esc(s.file)}</span></div></div>
       <button class="btn small" data-action="verify" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Prove the save can be rewritten without changing a byte">Verify</button>
+      <button class="btn small" data-action="slot-menu" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Export, copy, move, swap or delete">More…</button>
       <button class="btn ${label === 'Latest' ? 'primary' : ''}" data-action="open" data-account="${esc(a.id)}" data-file="${esc(s.file)}">Open</button>
       ${vr ? `<div class="verify-result">${vr.checks.map((c) => `<span style="color:var(--${c.ok ? 'ok' : 'bad'})">${c.ok ? '✓' : '✗'} ${esc(c.name)}${c.detail ? ` <span class="muted">— ${esc(c.detail)}</span>` : ''}</span>`).join('')}</div>` : ''}
     </div>`;
@@ -193,7 +194,7 @@ function renderHome() {
   const accounts = state.accounts;
   app.innerHTML = `
     <section class="home">
-      <h1>Choose a save</h1>
+      <div class="home-head"><h1>Choose a save</h1>${state.gamedata?.available ? '<button class="btn" data-action="catalogue">Item catalogue</button>' : ''}</div>
       <p class="lead">Edits are staged in memory and validated. Nothing touches your save until you review and confirm, and every write is backed up first.</p>
       ${state.where ? `<p class="gamedata">Save folder: <span class="mono">${esc(state.where.saveRoots.join(', '))}</span></p>` : ''}
       ${state.gamedata ? `<p class="gamedata ${state.gamedata.available ? '' : 'warn'}">${state.gamedata.available ? `Item names and icons: ${fmt(state.gamedata.items)} items read from your game install.` : `Item names unavailable — ${esc(state.gamedata.reason)}`}</p>` : ''}
@@ -225,6 +226,7 @@ function renderSidebar() {
     <nav class="sidebar">
       <div class="search"><input type="search" id="search" placeholder="Find items…" value="${esc(state.search)}" aria-label="Find items"></div>
       <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span>All items</span></button>
+      <button class="nav-item ${state.selected === 'knowledge' ? 'active' : ''}" data-select="knowledge"><span>Knowledge</span><span class="count">words &amp; blueprints</span></button>
       ${[...groups]
         .map(
           ([group, list]) => `
@@ -437,15 +439,155 @@ function renderEditor() {
   const c = state.view.containers.find((x) => x.id === state.selected);
   app.innerHTML = `
     ${renderSidebar()}
-    <section class="content">${state.selected === 'items' || !c ? renderItems() : renderContainer(c)}</section>
+    <section class="content">${state.selected === 'knowledge' ? renderKnowledge() : state.selected === 'items' || !c ? renderItems() : renderContainer(c)}</section>
     ${renderDetails()}`;
 }
 
 function render() {
   renderTopbar();
-  if (state.view?.kind === 'account') renderRewards();
+  if (state.mode === 'catalogue' && !state.view) renderCatalogue();
+  else if (state.view?.kind === 'account') renderRewards();
   else if (state.view) renderEditor();
   else renderHome();
+}
+
+// ---- knowledge (per save) ------------------------------------------------------
+
+state.bpFilter = 'unknown';
+state.bpSel = new Set();
+
+function shownBlueprints() {
+  const q = state.search.trim().toLowerCase();
+  return state.view.knowledge.blueprints.filter((b) => {
+    if (state.bpFilter === 'unknown' && b.known) return false;
+    if (state.bpFilter === 'known' && !b.known) return false;
+    return !q || (b.name ?? '').toLowerCase().includes(q) || b.id.toLowerCase().includes(q);
+  });
+}
+
+function renderKnowledge() {
+  const k = state.view.knowledge;
+  const shown = shownBlueprints();
+  const unknownShown = shown.filter((b) => !b.known);
+  const sel = [...state.bpSel].filter((id) => k.blueprints.some((b) => b.id === id && !b.known));
+  return `
+    <h2>Knowledge</h2>
+    <p class="sub">Words and blueprints are per save. Only entries from the game’s own word table and blueprint trees are added.</p>
+    <section class="inv">
+      <h3>Alien words</h3>
+      <div class="word-grid">${k.words.map((w) => `
+        <div class="word-card">
+          <b>${esc(w.name)}</b><span class="muted small">${fmt(w.known)} / ${fmt(w.total)} words</span>
+          <span class="bar"><i style="width:${w.total ? (w.known / w.total) * 100 : 0}%"></i></span>
+          <button class="btn small" data-action="learn-words" data-race="${w.race}" ${w.known >= w.total ? 'disabled' : ''}>${w.known >= w.total ? 'All known' : 'Learn all'}</button>
+        </div>`).join('')}</div>
+    </section>
+    <section class="inv">
+      <h3>Blueprints <span class="muted">${fmt(k.blueprints.filter((b) => b.known).length)} / ${fmt(k.blueprints.length)} learned</span></h3>
+      <div class="reward-bar">
+        <div class="tabs">${['unknown', 'known', 'all'].map((f) => `<button class="tab small ${f === state.bpFilter ? 'active' : ''}" data-bp-filter="${f}">${f === 'unknown' ? 'Not learned' : f === 'known' ? 'Learned' : 'All'}</button>`).join('')}</div>
+        <input type="search" id="search" placeholder="Search blueprints…" value="${esc(state.search)}" aria-label="Search blueprints">
+      </div>
+      <div class="reward-actions">
+        <button class="btn primary" data-action="learn-selected" ${sel.length ? '' : 'disabled'}>Learn selected (${sel.length})</button>
+        <button class="btn" data-action="learn-shown" ${unknownShown.length ? '' : 'disabled'}>Learn all ${state.search ? 'matching' : 'shown'} (${unknownShown.length})</button>
+      </div>
+      <div class="reward-grid">${shown.slice(0, 300).map((b) => `
+        <button class="reward ${b.known ? 'is-unlocked' : ''} ${sel.includes(b.id) ? 'selected' : ''}" data-bp="${esc(b.id)}" ${b.known ? 'disabled' : ''}>
+          ${b.icon ? `<img src="/icons/${encodeURIComponent(b.id)}.png" alt="" loading="lazy">` : '<span class="reward-noicon"></span>'}
+          <span class="reward-text"><b>${esc(b.name ?? b.id)}</b><span class="muted small">${esc(b.subtitle ?? b.type ?? '')}</span><span class="mono muted">${esc(b.id)}</span></span>
+          ${b.known ? '<span class="tag ok">Learned</span>' : `<span class="check">${sel.includes(b.id) ? '✓' : ''}</span>`}
+        </button>`).join('') || '<p class="muted">Nothing to show.</p>'}</div>
+      ${shown.length > 300 ? `<p class="muted">Showing 300 of ${fmt(shown.length)}; search to narrow down.</p>` : ''}
+    </section>`;
+}
+
+// ---- item catalogue (no save needed) ------------------------------------------
+
+state.cat = { type: '', results: null };
+
+async function loadCatalogue() {
+  state.cat.results = await api('/api/browse', { q: state.search, type: state.cat.type });
+  render();
+}
+
+function renderCatalogue() {
+  const r = state.cat.results;
+  app.innerHTML = `
+    <section class="rewards">
+      <h2>Item catalogue</h2>
+      <p class="sub">Every named item in your installed game, read from its data files. No save needed.</p>
+      <div class="reward-bar">
+        <div class="tabs">${['', 'Substance', 'Product', 'Technology'].map((t) => `<button class="tab small ${t === state.cat.type ? 'active' : ''}" data-cat-type="${t}">${t || 'All'}</button>`).join('')}</div>
+        <input type="search" id="search" placeholder="Search items…" value="${esc(state.search)}" aria-label="Search items">
+      </div>
+      ${r ? `<p class="muted small">${fmt(r.total)} item${r.total === 1 ? '' : 's'}${r.total > r.items.length ? `, showing the first ${r.items.length}` : ''}</p>` : '<p class="muted">Loading…</p>'}
+      <div class="cat-list">${(r?.items ?? []).map((i) => `
+        <div class="cat-row t-${esc(i.type)}">
+          ${i.icon ? `<img class="cat-icon" src="/icons/${encodeURIComponent(i.id)}.png" alt="" loading="lazy">` : '<span class="cat-icon"></span>'}
+          <div><b>${esc(i.name)}</b> <span class="muted small">· ${esc(i.subtitle ?? i.type)}</span>
+            ${i.desc ? `<p class="desc">${esc(i.desc)}</p>` : ''}
+            <div class="cat-meta"><span class="dot"></span>${esc(i.type)} · <span class="mono">${esc(i.id)}</span>${i.stack === 0 ? ' · doesn’t stack' : i.stack ? ` · stack ×${fmt(i.stack)}` : ''}${i.core ? ' · core tech' : ''}${i.chargeable ? ' · uses charge' : ''}${i.procedural ? ' · procedural' : ''}</div>
+          </div>
+        </div>`).join('')}</div>
+    </section>`;
+}
+
+// ---- save slot menu ------------------------------------------------------------
+
+async function openSlotMenu(account, file) {
+  const acc = state.accounts.find((a) => a.id === account);
+  const slots = await api('/api/slots');
+  const existing = new Map(acc.slots.map((s) => [s.file, s]));
+  const options = slots.filter((f) => f !== file).map((f, i) => {
+    const s = existing.get(f);
+    const n = Math.ceil((slots.indexOf(f) + 1) / 2);
+    return `<option value="${esc(f)}" data-exists="${s ? 1 : 0}">Slot ${n} · ${esc(f)} — ${s ? esc(s.summary ?? 'save') : 'empty'}</option>`;
+  });
+  modal(`
+    <h2>${esc(file)}</h2>
+    <p class="muted">${esc(existing.get(file)?.summary ?? '')}. Every change here is backed up first and can be restored from Backups.</p>
+    <div class="stack">
+      <button class="btn" data-action="export-json" data-account="${esc(account)}" data-file="${esc(file)}">Export as readable JSON</button>
+    </div>
+    <h3 class="modal-sub">Copy, move or swap</h3>
+    <select id="slot-target" class="slot-select" aria-label="Target slot">${options.join('')}</select>
+    <div class="stack-row" style="margin-top:8px">
+      <button class="btn" data-action="slot-op" data-op="copy" data-account="${esc(account)}" data-file="${esc(file)}">Copy here</button>
+      <button class="btn" data-action="slot-op" data-op="move" data-account="${esc(account)}" data-file="${esc(file)}">Move here</button>
+      <button class="btn" data-action="slot-op" data-op="swap" data-account="${esc(account)}" data-file="${esc(file)}">Swap with it</button>
+    </div>
+    <h3 class="modal-sub">Delete</h3>
+    <button class="btn danger" data-action="slot-op" data-op="delete" data-account="${esc(account)}" data-file="${esc(file)}">Delete this save</button>
+    <footer><button class="btn" data-action="close-modal">Close</button></footer>`);
+}
+
+async function runSlotOp(d) {
+  const to = $('#slot-target')?.value;
+  const targetExists = $('#slot-target')?.selectedOptions[0]?.dataset.exists === '1';
+  const what = { copy: `Copy ${d.file} to ${to}`, move: `Move ${d.file} to ${to}`, swap: `Swap ${d.file} and ${to}`, delete: `Delete ${d.file}` }[d.op];
+  const overwrite = (d.op === 'copy' || d.op === 'move') && targetExists ? ` This replaces the save in ${to}.` : '';
+  if (!confirm(`${what}?${overwrite} A backup is taken first.`)) return;
+  await run(async () => {
+    const r = await api('/api/slot', { account: d.account, op: d.op, from: d.file, to });
+    closeModal();
+    toast(`${what}: done${r.verified ? ', verified' : ''}`, !r.verified);
+    state.verify = {};
+    await loadAccounts();
+  });
+}
+
+async function exportJson(account, file) {
+  await run(async () => {
+    const r = await api('/api/export', { account, file });
+    const url = URL.createObjectURL(new Blob([r.json], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: r.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast(`Exported ${r.name}`);
+  });
 }
 
 // ---- account rewards ---------------------------------------------------------
@@ -530,6 +672,8 @@ function describeOp(op) {
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
+    case 'learnWords': return `Learn all ${op.races.map((r) => state.view.knowledge?.words.find((w) => w.race === r)?.name ?? r).join(', ')} words`;
+    case 'learnBlueprints': return `Learn ${op.ids.length} blueprint${op.ids.length === 1 ? '' : 's'}: ${op.ids.slice(0, 4).map((id) => state.view.knowledge?.blueprints.find((b) => b.id === id)?.name ?? id).join(', ')}${op.ids.length > 4 ? `, and ${op.ids.length - 4} more` : ''}`;
     case 'unlockRewards': {
       const names = op.ids.map((id) => state.view.lists?.[op.list]?.rewards.find((r) => r.id === id)?.name ?? id);
       const label = (state.view.lists?.[op.list]?.label.toLowerCase() ?? 'rewards').replace(/s$/, op.ids.length === 1 ? '' : 's');
@@ -608,10 +752,25 @@ async function loadAccounts() {
 }
 
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('[data-action],[data-select],[data-slot],[data-cell],[data-jump],[data-reward],[data-reward-tab],[data-reward-filter]');
+  const t = e.target.closest('[data-action],[data-select],[data-slot],[data-cell],[data-jump],[data-reward],[data-reward-tab],[data-reward-filter],[data-bp],[data-bp-filter],[data-cat-type]');
   if (!t) return;
   if (t.matches('.modal-backdrop') && e.target !== t) return;
   const d = t.dataset;
+
+  if (d.bp) {
+    if (state.bpSel.has(d.bp)) state.bpSel.delete(d.bp);
+    else state.bpSel.add(d.bp);
+    return render();
+  }
+  if (d.bpFilter) {
+    state.bpFilter = d.bpFilter;
+    state.bpSel.clear();
+    return render();
+  }
+  if (d.catType !== undefined) {
+    state.cat.type = d.catType;
+    return run(loadCatalogue);
+  }
 
   if (d.reward) {
     if (state.rewardSel.has(d.reward)) state.rewardSel.delete(d.reward);
@@ -648,6 +807,8 @@ document.addEventListener('click', async (e) => {
     case 'home':
       if (state.view?.ops && !confirm('Discard unsaved changes?')) return;
       state.view = null;
+      state.mode = null;
+      state.search = '';
       return loadAccounts();
     case 'verify':
       return run(async () => {
@@ -698,6 +859,26 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: d.action, ...state.slot });
     case 'add-item':
       return openAddItem();
+    case 'catalogue':
+      state.mode = 'catalogue';
+      state.search = '';
+      render();
+      return run(loadCatalogue);
+    case 'slot-menu':
+      return run(() => openSlotMenu(d.account, d.file));
+    case 'slot-op':
+      return runSlotOp(d);
+    case 'export-json':
+      return exportJson(d.account, d.file);
+    case 'learn-words':
+      return applyOp({ op: 'learnWords', races: [Number(d.race)] });
+    case 'learn-selected':
+      return applyOp({ op: 'learnBlueprints', ids: [...state.bpSel] }).then(() => { state.bpSel.clear(); render(); });
+    case 'learn-shown': {
+      const ids = shownBlueprints().filter((b) => !b.known).map((b) => b.id);
+      if (ids.length > 10 && !confirm(`Learn ${ids.length} blueprints? You can still review before anything is written.`)) return;
+      return applyOp({ op: 'learnBlueprints', ids }).then(() => { state.bpSel.clear(); render(); });
+    }
     case 'unlock-selected':
       return unlock([...state.rewardSel]);
     case 'unlock-shown': {
@@ -733,11 +914,21 @@ document.addEventListener('input', (e) => {
   if (e.target.id !== 'search') return;
   state.search = e.target.value;
   const pos = e.target.selectionStart;
+  const refocus = () => {
+    const box = $('#search');
+    box?.focus();
+    box?.setSelectionRange(pos, pos);
+  };
+  if (state.mode === 'catalogue' && !state.view) {
+    // The catalogue searches on the server; wait for typing to pause.
+    clearTimeout(catalogueTimer);
+    catalogueTimer = setTimeout(() => run(loadCatalogue).then(refocus), 200);
+    return;
+  }
   render();
-  const box = $('#search');
-  box.focus();
-  box.setSelectionRange(pos, pos);
+  refocus();
 });
+let catalogueTimer = null;
 
 document.addEventListener('focusin', (e) => {
   if (e.target.dataset.currency) e.target.value = e.target.value.replace(/[^\d]/g, '');

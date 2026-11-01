@@ -81,7 +81,7 @@ main { flex: 1; min-height: 0; display: flex; }
 .slot-title b { font-size: 15px; margin-right: 8px; }
 .slot-title .muted { font-size: 12px; margin-top: 2px; }
 .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 4px; vertical-align: 2px; }
-.slot-row { display: grid; grid-template-columns: 100px 1fr auto auto; gap: 12px; align-items: center; padding: 8px 16px 8px 64px; }
+.slot-row { display: grid; grid-template-columns: 100px 1fr auto auto auto; gap: 12px; align-items: center; padding: 8px 16px 8px 64px; }
 .slot-row:last-child { padding-bottom: 14px; }
 .when-label { font-size: 12px; color: var(--muted); }
 .when-label.latest { color: var(--ok); font-weight: 600; }
@@ -222,6 +222,18 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .reward .check { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); font-weight: 700; }
 .tag.ok { color: var(--ok); border-color: var(--ok); }
 .tag.pending { color: var(--accent); border-color: var(--accent); }
+.home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+.modal-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.word-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.word-card { display: grid; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+.word-card .bar { height: 4px; background: #ffffff14; border-radius: 2px; overflow: hidden; }
+.word-card .bar i { display: block; height: 100%; background: var(--accent); }
+.cat-list { display: grid; gap: 6px; }
+.cat-row { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: start; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+.cat-icon { width: 56px; height: 56px; object-fit: contain; }
+.cat-row .desc { margin: 4px 0; }
+.cat-meta { color: var(--muted); font-size: 12px; }
 .no-drop { opacity: .35; }
 .nav-item.no-drop { text-decoration: line-through; text-decoration-color: var(--muted); }
 #drag-hint { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 25; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--warn); padding: 8px 14px; border-radius: 6px; max-width: 520px; pointer-events: none; }

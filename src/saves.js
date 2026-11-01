@@ -12,7 +12,8 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog } from './gamedata/index.js';
+import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -264,6 +265,7 @@ export function openSession(accountId, file) {
     id: crypto.randomUUID(),
     kind,
     rewards: kind === 'account' ? rewardCatalog() : null,
+    knowledge: kind === 'save' ? knowledgeCatalog() : null,
     account,
     file,
     savePath,
@@ -325,6 +327,7 @@ export function sessionView(s) {
   return {
     stackTrust,
     stackDifficulty: s.stacks.difficulty,
+    knowledge: knowledgeState(s.work, s.knowledge),
     sessionId: s.id,
     account: s.account.id,
     file: s.file,
@@ -368,6 +371,8 @@ function opScope(s, op) {
     case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
     case 'rename': return [s.cat.names.get(op.target)];
     case 'unlockRewards': return [REWARD_LISTS[op.list] ? ['UserSettingsData', REWARD_LISTS[op.list].field] : undefined];
+    case 'learnWords': return [['BaseContext', 'PlayerStateData', 'KnownWordGroups']];
+    case 'learnBlueprints': return [['BaseContext', 'PlayerStateData', 'KnownTech'], ['BaseContext', 'PlayerStateData', 'KnownProducts']];
     default: return [undefined];
   }
 }
@@ -379,6 +384,13 @@ function snapshot(tree, paths) {
     const value = parent[key];
     return { parent, key, value: value !== null && typeof value === 'object' && !JSON.isRawJSON(value) ? parse(stringify(value)) : value };
   });
+}
+
+// Routes an op to the module that owns it.
+function applyAny(s, tree, op) {
+  if (s.kind === 'account') return applyRewardOp(tree, s.rewards, op);
+  if (op?.op === 'learnWords' || op?.op === 'learnBlueprints') return applyKnowledgeOp(tree, s.knowledge, op);
+  return applyOp(tree, s.cat, s.stacks, op);
 }
 
 // Applies an op to the working tree, rolling back its scope if it is rejected.
@@ -401,7 +413,7 @@ function applyToSession(s, op) {
     for (const { parent, key, value } of saved.reverse()) parent[key] = value;
   };
   try {
-    const { touched, warnings } = s.kind === 'account' ? applyRewardOp(tree, s.rewards, op) : applyOp(tree, s.cat, s.stacks, op);
+    const { touched, warnings } = applyAny(s, tree, op);
     for (const p of touched) {
       if (p.at(-1) !== 'Slots') continue;
       const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
@@ -432,7 +444,7 @@ function replay(s) {
   const tree = parse(s.readable);
   s.warnings = [];
   for (const { op } of s.ops) {
-    const r = s.kind === 'account' ? applyRewardOp(tree, s.rewards, op) : applyOp(tree, s.cat, s.stacks, op);
+    const r = applyAny(s, tree, op);
     s.warnings.push(...r.warnings.map(nameIds));
   }
   s.work = tree;
@@ -541,18 +553,92 @@ async function writeAtomic(target, bytes) {
   await fsp.rename(tmp, target);
 }
 
-export async function backup(s, reason) {
+export const backup = (s, reason) => backupFiles(s.account, [s.file], reason);
+
+// Copies each save file (and its manifest) that exists into one verified backup.
+async function backupFiles(account, saveFiles, reason) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const dir = path.join(backupRoot, s.account.id, `${stamp}_${s.file.replace('.hg', '')}`);
+  const dir = path.join(backupRoot, account.id, `${stamp}_${saveFiles.map((f) => f.replace('.hg', '')).join('+')}`);
   await fsp.mkdir(dir, { recursive: true });
-  const files = [s.file, `mf_${s.file}`].filter((f) => fs.existsSync(path.join(s.account.dir, f)));
+  const files = saveFiles.flatMap((f) => [f, `mf_${f}`]).filter((f) => fs.existsSync(path.join(account.dir, f)));
   for (const f of files) {
-    const src = path.join(s.account.dir, f);
+    const src = path.join(account.dir, f);
     await fsp.copyFile(src, path.join(dir, f));
     if (sha(await fsp.readFile(src)) !== sha(await fsp.readFile(path.join(dir, f)))) throw new Error(`Backup of ${f} did not verify`);
   }
-  await fsp.writeFile(path.join(dir, 'backup.json'), JSON.stringify({ account: s.account.id, sourceDir: s.account.dir, file: s.file, files, reason, created: new Date().toISOString() }, null, 2));
+  await fsp.writeFile(path.join(dir, 'backup.json'), JSON.stringify({ account: account.id, sourceDir: account.dir, file: saveFiles.join(' + '), files, reason, created: new Date().toISOString() }, null, 2));
   return dir;
+}
+
+// ---- Save slot management ---------------------------------------------------
+
+// The game uses save.hg … save30.hg (15 slots × 2).
+export const SLOT_FILES = Array.from({ length: 30 }, (_, i) => (i === 0 ? 'save.hg' : `save${i + 1}.hg`));
+
+// A save file's bytes plus its manifest re-keyed for another file name: the
+// manifest's encryption key depends on the file name, the save data doesn't.
+function rekeyed(account, from, to) {
+  const data = fs.readFileSync(path.join(account.dir, from));
+  const metaPath = path.join(account.dir, `mf_${from}`);
+  if (!fs.existsSync(metaPath)) return { data, meta: null };
+  const plain = decryptMeta(fs.readFileSync(metaPath), archiveNumberFor(from));
+  if (plain.readUInt32LE(0) !== META_MAGIC) throw new OpError(`The manifest for ${from} isn't recognised`);
+  const meta = encryptMeta(plain, archiveNumberFor(to));
+  if (!decryptMeta(meta, archiveNumberFor(to)).equals(plain)) throw new Error('Re-keyed manifest did not verify');
+  return { data, meta };
+}
+
+async function writePair(account, file, { data, meta }) {
+  await writeAtomic(path.join(account.dir, file), data);
+  if (meta) await writeAtomic(path.join(account.dir, `mf_${file}`), meta);
+  if (!fs.readFileSync(path.join(account.dir, file)).equals(data)) throw new Error(`Read-back of ${file} did not match`);
+  if (meta && !fs.readFileSync(path.join(account.dir, `mf_${file}`)).equals(meta)) throw new Error(`Read-back of mf_${file} did not match`);
+}
+
+async function removePair(account, file) {
+  for (const f of [file, `mf_${file}`]) await fsp.rm(path.join(account.dir, f), { force: true });
+}
+
+// op: copy (from -> to, overwriting), move (copy then delete from), swap, delete (from).
+export async function slotOp(accountId, op, from, to) {
+  const account = listAccounts().find((a) => a.id === accountId);
+  if (!account) throw new OpError('Unknown account');
+  const exists = (f) => fs.existsSync(path.join(account.dir, f));
+  if (!SLOT_FILES.includes(from) || !exists(from)) throw new OpError('Choose an existing save');
+  if (op !== 'delete' && (!SLOT_FILES.includes(to) || to === from)) throw new OpError('Choose a different target slot');
+  if (op === 'swap' && !exists(to)) throw new OpError('Swap needs a save in both places; use Move instead');
+  if (!['copy', 'move', 'swap', 'delete'].includes(op)) throw new OpError(`Unknown slot operation ${op}`);
+  if (isGameRunning()) throw new OpError('Close No Man’s Sky first');
+
+  const involved = op === 'delete' ? [from] : [from, to];
+  const backupDir = await backupFiles(account, involved, `Before ${op} ${involved.join(' → ')}`);
+  // Read everything before writing anything.
+  const fromPair = op === 'delete' ? null : rekeyed(account, from, to);
+  const toPair = op === 'swap' ? rekeyed(account, to, from) : null;
+  try {
+    if (op === 'delete') await removePair(account, from);
+    else {
+      await writePair(account, to, fromPair);
+      if (op === 'swap') await writePair(account, from, toPair);
+      if (op === 'move') await removePair(account, from);
+    }
+  } catch (e) {
+    // Put back what was there; a newly created target from a failed copy is removed.
+    await restoreFiles(backupDir, account.dir);
+    if (!JSON.parse(fs.readFileSync(path.join(backupDir, 'backup.json'), 'utf8')).files.includes(to)) await removePair(account, to);
+    throw new Error(`${e.message}; original files restored`);
+  }
+  const verified = involved.filter(exists).map((f) => verifyRoundTrip(accountId, f));
+  return { backupDir, verified: verified.every((v) => v.ok), checks: verified.flatMap((v) => v.checks.map((c) => ({ ...c, name: `${v.file}: ${c.name}` }))) };
+}
+
+// ---- Export -----------------------------------------------------------------
+
+// The save as indented JSON with readable keys, for reading — not for re-import.
+export function exportJson(accountId, file) {
+  const { savePath } = resolveSave(accountId, file);
+  const readable = deobfuscate(decodeSave(fs.readFileSync(savePath)).text, mapping);
+  return { name: `${accountId}-${file.replace('.hg', '')}.json`, json: toDisplay(JSON.stringify(parse(readable), null, 2)) };
 }
 
 export async function commit(s) {
