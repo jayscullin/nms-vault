@@ -6,7 +6,10 @@ import { num, setNum, toDisplay, fromDisplay, parse, stringify } from './lossles
 const PS = ['BaseContext', 'PlayerStateData'];
 
 // Kinds decide which moves are allowed. Only "bulk" inventories exchange items.
-const BULK = new Set(['general', 'cargo', 'storage']);
+// "legacy" marks the old *_Cargo inventories: current game versions keep cargo in
+// the general inventory and these stay empty, so items moved there could vanish
+// from view in-game. They are shown only if non-empty, and only to move items out.
+const BULK = new Set(['general', 'storage']);
 
 const SHIP_TYPES = [
   [/WRACER/, 'Starborn Runner'],
@@ -62,12 +65,13 @@ export function catalog(tree) {
   const inv = (c, label, path, kind) => {
     const v = get(tree, path);
     if (!v?.Slots || num(v.Width) * num(v.Height) === 0) return;
-    c.inventories.push({ id: path.join('/'), label, path, kind });
+    if (kind === 'legacy' && v.Slots.length === 0) return;
+    c.inventories.push({ id: path.join('/'), label: kind === 'legacy' ? `${label} (legacy)` : label, path, kind, where: `${c.title} · ${label}` });
   };
 
   const exo = container('Exosuit', 'Exosuit');
   inv(exo, 'General', [...PS, 'Inventory'], 'general');
-  inv(exo, 'Cargo', [...PS, 'Inventory_Cargo'], 'cargo');
+  inv(exo, 'Cargo', [...PS, 'Inventory_Cargo'], 'legacy');
   inv(exo, 'Technology', [...PS, 'Inventory_TechOnly'], 'tech');
 
   (ps.ShipOwnership ?? []).forEach((s, i) => {
@@ -80,7 +84,7 @@ export function catalog(tree) {
     });
     c.subtitle = shipType(file);
     inv(c, 'General', [...base, 'Inventory'], 'general');
-    inv(c, 'Cargo', [...base, 'Inventory_Cargo'], 'cargo');
+    inv(c, 'Cargo', [...base, 'Inventory_Cargo'], 'legacy');
     inv(c, 'Technology', [...base, 'Inventory_TechOnly'], 'tech');
   });
 
@@ -95,7 +99,7 @@ export function catalog(tree) {
 
   const fr = container('Freighter', 'Freighter');
   inv(fr, 'General', [...PS, 'FreighterInventory'], 'general');
-  inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'cargo');
+  inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'legacy');
   inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech');
 
   for (let n = 1; n <= 10; n++) {
@@ -196,7 +200,7 @@ function assertCellUsable(loc) {
 
 function assertCanHold(loc, slot) {
   if (!isBulkItem(slot)) throw new OpError('Technology can only be rearranged within its own inventory');
-  if (!BULK.has(loc.info.kind)) throw new OpError(`${loc.info.label} inventories cannot receive items from elsewhere`);
+  if (!BULK.has(loc.info.kind)) throw new OpError(`${loc.info.where} can't receive items from elsewhere`);
 }
 
 function amountInt(value, min, max, what) {
@@ -262,7 +266,7 @@ export function applyOp(tree, cat, stacks, op) {
       if (!to.slot) {
         // Into an empty cell: move as much as fits one stack there, leave the rest.
         const limit = stacks.limitFor(from.slot, to.inv);
-        if (limit === null) throw new OpError(`Can't confirm the game's stack limit for ${toDisplay(from.slot.Id)} in ${to.info.label}, so it stays where it is`);
+        if (limit === null) throw new OpError(`Can't confirm the game's stack limit for ${toDisplay(from.slot.Id)} in ${to.info.where}, so it stays where it is`);
         if (num(from.slot.Amount) > limit) {
           const part = parse(stringify(from.slot));
           part.Amount = setNum(part.Amount, limit);
@@ -270,7 +274,7 @@ export function applyOp(tree, cat, stacks, op) {
           setIndex(part, to.x, to.y);
           to.inv.Slots.push(part);
           from.slot.Amount = setNum(from.slot.Amount, num(from.slot.Amount) - limit);
-          warnings.push(`Moved ${limit} ${toDisplay(from.slot.Id)} (one full stack in ${to.info.label}); the rest stayed behind`);
+          warnings.push(`Moved ${limit} ${toDisplay(from.slot.Id)} (one full stack in ${to.info.where}); the rest stayed behind`);
           return { touched, warnings };
         }
       }
@@ -320,7 +324,7 @@ function setIndex(slot, x, y) {
 function fitStack(slot, dest, stacks) {
   const limit = stacks.limitFor(slot, dest.inv);
   if (limit === null) {
-    throw new OpError(`Can't confirm the game's stack limit for ${toDisplay(slot.Id)} in ${dest.info.label}, so it stays where it is`);
+    throw new OpError(`Can't confirm the game's stack limit for ${toDisplay(slot.Id)} in ${dest.info.where}, so it stays where it is`);
   }
   if (num(slot.Amount) > limit) throw new OpError(`Only ${limit} ${toDisplay(slot.Id)} fit in one stack there; reduce the amount first`);
   slot.MaxAmount = setNum(slot.MaxAmount, limit);

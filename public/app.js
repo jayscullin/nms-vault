@@ -17,7 +17,7 @@ const state = {
 };
 
 const CURRENCY_LABELS = { Units: 'Units', Nanites: 'Nanites', Specials: 'Quicksilver' };
-const BULK = new Set(['general', 'cargo', 'storage']);
+const BULK = new Set(['general', 'storage']); // kinds that can receive items; matches src/inventory.js
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -97,11 +97,13 @@ function moveToContainer(from, containerId) {
   const fromInv = findInv(from.inv);
   const item = slotAt(fromInv, from.x, from.y);
   // Prefer topping up an existing stack, then the first free cell.
-  for (const inv of c.inventories.filter((i) => BULK.has(i.kind) && i.id !== from.inv)) {
+  const targets = c.inventories.filter((i) => i.id !== from.inv && dropBlock(item, from.inv, { ...i, container: c }) === null);
+  if (!targets.length) return toast(containerBlock(item, from.inv, c) ?? `${c.title} can’t take that`, true);
+  for (const inv of targets) {
     const stack = inv.slots.find((s) => s.id === item.id && s.amount < s.max);
     if (stack) return applyOp({ op: 'move', from, to: { inv: inv.id, x: stack.x, y: stack.y } });
   }
-  for (const inv of c.inventories.filter((i) => BULK.has(i.kind) && i.id !== from.inv)) {
+  for (const inv of targets) {
     const cell = firstFreeCell(inv);
     if (cell) return applyOp({ op: 'move', from, to: { inv: inv.id, x: cell[0], y: cell[1] } });
   }
@@ -274,7 +276,7 @@ function renderContainer(c) {
     ${c.inventories
       .map(
         (inv) => `
-      <section class="inv">
+      <section class="inv" data-inv-section="${esc(inv.id)}">
         <h3>${esc(inv.label)} <span class="muted">${inv.slots.length}/${inv.valid.length} used · ${inv.width}×${inv.height}${inv.stackGroup ? ` · ${esc(inv.stackGroup)} stacks` : ''}</span></h3>
         ${renderGrid(inv)}
       </section>`,
@@ -585,24 +587,83 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Why an item can't be dropped into an inventory, or null if it can. Mirrors the
+// server's rules so blocked targets show before dropping; the server still decides.
+function dropBlock(item, fromInvId, inv) {
+  if (inv.id === fromInvId) return null;
+  if (item.type === 'Technology') return 'Technology stays in its own grid';
+  if (!BULK.has(inv.kind)) return `${inv.label} can’t receive items from elsewhere`;
+  const trusted = state.view.stackTrust?.[inv.stackGroup]?.[item.type];
+  const known = allInventories().some((i) => i.stackGroup === inv.stackGroup && i.slots.some((s) => s.id === item.id));
+  return trusted || known ? null : `The game’s stack limit for ${itemName(item.id)} in ${inv.container.title} · ${inv.label} can’t be confirmed`;
+}
+
+function containerBlock(item, fromInvId, container) {
+  const reasons = container.inventories.map((i) => dropBlock(item, fromInvId, { ...i, container }));
+  return reasons.some((r) => r === null) ? null : reasons[0];
+}
+
 // Drag and drop: cell to cell, or cell to a sidebar container.
 let dragFrom = null;
+let dragItem = null;
+const blocked = new Map(); // element -> reason, for the current drag
+
+function markBlockedTargets() {
+  blocked.clear();
+  for (const el of document.querySelectorAll('[data-inv-section]')) {
+    const reason = dropBlock(dragItem, dragFrom.inv, findInv(el.dataset.invSection));
+    if (reason) blocked.set(el, reason);
+  }
+  for (const el of document.querySelectorAll('[data-drop-container]')) {
+    const c = state.view.containers.find((x) => x.id === el.dataset.select);
+    const reason = c && containerBlock(dragItem, dragFrom.inv, c);
+    if (reason) blocked.set(el, reason);
+  }
+  for (const [el, reason] of blocked) {
+    el.classList.add('no-drop');
+    el.title = reason;
+  }
+}
+
+function dragHint(text) {
+  let el = $('#drag-hint');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'drag-hint';
+    document.body.append(el);
+  }
+  el.textContent = text ?? '';
+  el.hidden = !text;
+}
+
 document.addEventListener('dragstart', (e) => {
   const cell = e.target.closest?.('[data-cell]');
   if (!cell) return;
   dragFrom = { inv: cell.dataset.inv, x: Number(cell.dataset.x), y: Number(cell.dataset.y) };
+  dragItem = slotAt(findInv(dragFrom.inv), dragFrom.x, dragFrom.y);
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', JSON.stringify(dragFrom));
+  markBlockedTargets();
 });
 document.addEventListener('dragover', (e) => {
   const target = e.target.closest?.('[data-cell]:not(.locked), [data-drop-container]:not([data-drop-container=""])');
   if (!target || !dragFrom) return;
-  e.preventDefault();
   document.querySelectorAll('.over, .drop-target').forEach((el) => el.classList.remove('over', 'drop-target'));
+  const scope = target.closest('[data-inv-section]') ?? target;
+  if (blocked.has(scope)) return dragHint(blocked.get(scope)); // no preventDefault: the browser shows "not allowed"
+  dragHint(null);
+  e.preventDefault();
   target.classList.add(target.matches('[data-cell]') ? 'over' : 'drop-target');
 });
 document.addEventListener('dragend', () => {
   dragFrom = null;
+  dragItem = null;
+  dragHint(null);
+  for (const el of blocked.keys()) {
+    el.classList.remove('no-drop');
+    el.removeAttribute('title');
+  }
+  blocked.clear();
   document.querySelectorAll('.over, .drop-target').forEach((el) => el.classList.remove('over', 'drop-target'));
 });
 document.addEventListener('drop', (e) => {

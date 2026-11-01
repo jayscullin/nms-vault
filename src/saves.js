@@ -12,7 +12,7 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform } from './gamedata/index.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 export const mapping = loadMapping(path.join(here, '..', 'data', 'mapping.json'));
@@ -161,7 +161,8 @@ export function verifyRoundTrip(accountId, file) {
 // Decides an item's stack limit in a given inventory, trusting the game first:
 // 1. a limit the game already wrote for the same item in the same stack group;
 // 2. otherwise the game's rule (base x multiplier), but only for stack groups
-//    where the rule reproduces every limit the game wrote in this save.
+//    where the rule reproduces every limit the game wrote in this save, or where
+//    every stack group has the same base so the group cannot matter.
 // Anything else is unknown (null), and moves that would need it are refused.
 function stackPolicy(tree, containers) {
   const ps = get(tree, ['BaseContext', 'PlayerStateData']);
@@ -191,13 +192,18 @@ function stackPolicy(tree, containers) {
       }
     }
   }
-  const trusted = (group, type) => {
+  const verified = (group, type) => {
     const g = groups.get(`${group}|${type}`);
     return Boolean(g && g.agree > 0 && g.disagree === 0);
   };
+  const contradicted = (type) => [...groups].some(([k, g]) => k.endsWith(`|${type}`) && g.disagree > 0);
+  const trusted = (group, type) => verified(group, type) || (stackBaseUniform(type, difficulty) && !contradicted(type));
   return {
     difficulty,
     groups,
+    // Whether any item of this type has a confirmed limit in this group. Items the
+    // game already stores in the group are also allowed (see limitFor).
+    trusted,
     limitFor(slot, inv) {
       const group = stackGroupOf(inv);
       const type = slot.Type?.InventoryType;
@@ -278,7 +284,19 @@ export function sessionView(s) {
   // Item info is sent once per distinct id rather than per slot.
   const items = {};
   for (const c of v.containers) for (const inv of c.inventories) for (const slot of inv.slots) if (!(slot.id in items)) items[slot.id] = describe(slot.id);
+  // Which item types have a confirmed stack limit in each stack group, so the
+  // page can refuse drop targets before the server has to.
+  const stackTrust = {};
+  for (const c of v.containers) {
+    for (const inv of c.inventories) {
+      if (inv.stackGroup && !(inv.stackGroup in stackTrust)) {
+        stackTrust[inv.stackGroup] = { Product: s.stacks.trusted(inv.stackGroup, 'Product'), Substance: s.stacks.trusted(inv.stackGroup, 'Substance') };
+      }
+    }
+  }
   return {
+    stackTrust,
+    stackDifficulty: s.stacks.difficulty,
     sessionId: s.id,
     account: s.account.id,
     file: s.file,
@@ -296,7 +314,31 @@ const num0 = (v) => (JSON.isRawJSON(v) ? Number(v.rawJSON) : v);
 // Item ids in messages ("^GEODE_LAND") become their in-game names where known.
 const nameIds = (text) => text.replace(/\^[A-Z0-9_]+(?:#\d+)?/g, (id) => describe(id)?.name ?? id);
 
-// Applies to a scratch copy first, so a rejected op never corrupts the working tree.
+// The tree locations an op may modify. Ops never change anything else (review's
+// structural diff enforces that), so snapshotting these is enough to undo a
+// rejected op without copying the whole multi-megabyte save.
+function opScope(s, op) {
+  const inv = (id) => s.cat.inventories.get(id)?.path;
+  switch (op?.op) {
+    case 'setAmount':
+    case 'remove': return [inv(op.inv)];
+    case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];
+    case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
+    case 'rename': return [s.cat.names.get(op.target)];
+    default: return [undefined];
+  }
+}
+
+function snapshot(tree, paths) {
+  return paths.map((path) => {
+    const parent = get(tree, path.slice(0, -1));
+    const key = path.at(-1);
+    const value = parent[key];
+    return { parent, key, value: value !== null && typeof value === 'object' && !JSON.isRawJSON(value) ? parse(stringify(value)) : value };
+  });
+}
+
+// Applies an op to the working tree, rolling back its scope if it is rejected.
 export function addOp(s, op) {
   try {
     applyToSession(s, op);
@@ -307,18 +349,30 @@ export function addOp(s, op) {
 }
 
 function applyToSession(s, op) {
-  const scratch = parse(stringify(s.work));
-  const { touched, warnings } = applyOp(scratch, s.cat, s.stacks, op);
-  for (const p of touched) {
-    if (p.at(-1) !== 'Slots') continue;
-    const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
-    const fresh = inventoryProblems(get(scratch, p.slice(0, -1))).filter((x) => !before.includes(x));
-    fresh.push(...stackProblems(s, p.slice(0, -1), scratch));
-    if (fresh.length) throw new OpError(fresh[0]);
+  const scope = opScope(s, op);
+  // Unknown scope (bad op): work on a full copy instead, which is slow but safe.
+  const scoped = scope.every((p) => p && get(s.work, p.slice(0, -1)));
+  const tree = scoped ? s.work : parse(stringify(s.work));
+  const saved = scoped ? snapshot(s.work, scope) : [];
+  const rollback = () => {
+    for (const { parent, key, value } of saved.reverse()) parent[key] = value;
+  };
+  try {
+    const { touched, warnings } = applyOp(tree, s.cat, s.stacks, op);
+    for (const p of touched) {
+      if (p.at(-1) !== 'Slots') continue;
+      const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
+      const fresh = inventoryProblems(get(tree, p.slice(0, -1))).filter((x) => !before.includes(x));
+      fresh.push(...stackProblems(s, p.slice(0, -1), tree));
+      if (fresh.length) throw new OpError(fresh[0]);
+    }
+    s.work = tree;
+    s.ops.push({ op, touched });
+    s.warnings.push(...warnings.map(nameIds));
+  } catch (e) {
+    rollback();
+    throw e;
   }
-  s.work = scratch;
-  s.ops.push({ op, touched });
-  s.warnings.push(...warnings.map(nameIds));
 }
 
 export function undoOp(s) {

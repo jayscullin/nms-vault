@@ -45,6 +45,14 @@ export function stackRule(saveId, type, group, difficulty) {
   return ruleLimit(db.stackBases, difficulty, type, group, r.stack);
 }
 
+// True when every inventory type shares one base limit for this item type and
+// difficulty (e.g. substances on High are 9999 everywhere), so the rule cannot
+// depend on which inventory type is which.
+export function stackBaseUniform(type, difficulty) {
+  const bases = db?.stackBases?.[difficulty]?.[type];
+  return Boolean(bases?.length) && bases.every((b) => b === bases[0]);
+}
+
 const memory = new Map();
 
 // PNG bytes for an item key's icon, or null.
