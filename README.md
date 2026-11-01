@@ -18,6 +18,7 @@ Needs Node 22+ and has no dependencies.
 - Edits: set stack amounts, fill stacks, remove items, drag to rearrange or transfer (onto a cell, or onto a container in the sidebar), rename ships, multi-tools and containers, and set Units, Nanites and Quicksilver.
 - **Add items:** select an empty cell and search the game's catalogue of products and substances. New stacks copy the slot format of an existing slot in the same save and get the game's stack limit for that inventory. Procedural items, which need a game-generated seed, can't be added.
 - **Technology:** recharge tech the game data marks as chargeable, repair damaged tech, and remove tech that isn't core. Core tech is what the game won't let you dismantle (Life Support, Launch Thruster, Pulse Engine and so on), and it can't be removed. Broken-slot placeholders on salvaged multi-tools and ships can be removed, which frees the slot. Both flags come from the game's technology table, and if they can't be read, those edits are disabled.
+- **Account rewards:** unlock expedition rewards and Twitch rewards for the whole account, as NomNom does. They become claimable in-game. Only rewards in the game's own reward tables can be unlocked, the lists keep the game's sorted order, and nothing else in `accountdata.hg` changes. It goes through the same review, backup and verification as saves.
 - Undo, discard, and a review screen before anything is written.
 
 ## How it stays non-destructive

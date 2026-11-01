@@ -71,9 +71,9 @@ export function encryptMeta(buf, archiveNumber) {
   return fromWords(v);
 }
 
-// accountdata.hg -> 0, save.hg -> 2, save2.hg -> 3, save3.hg -> 4, ...
+// accountdata.hg -> 1, save.hg -> 2, save2.hg -> 3, save3.hg -> 4, ...
 export function archiveNumberFor(saveFileName) {
-  if (saveFileName === 'accountdata.hg') return 0;
+  if (saveFileName === 'accountdata.hg') return 1;
   const m = /^save(\d*)\.hg$/.exec(saveFileName);
   if (!m) throw new Error(`Not a save file name: ${saveFileName}`);
   return (m[1] ? Number(m[1]) : 1) + 1;

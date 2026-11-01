@@ -9,7 +9,7 @@ import { readTable } from './mbin.js';
 import { readStackBases, readMultipliers, MULTIPLIER_OFFSETS } from './stacks.js';
 
 const TABLES = 'metadata/reality/tables/';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const SOURCES = [
   { file: 'nms_reality_gcsubstancetable.mbin', type: 'Substance' },
   { file: 'nms_reality_gcproducttable.mbin', type: 'Product' },
@@ -180,6 +180,8 @@ export function buildItemDb(archives) {
   }
   report.push(addProceduralProducts(archives, items));
   report.push(addTechBoxes(archives, items));
+  const rewards = readRewards(archives);
+  report.push({ table: 'rewards', season: rewards.season.length, twitch: rewards.twitch.length });
 
   let stackBases = null;
   try {
@@ -187,7 +189,41 @@ export function buildItemDb(archives) {
   } catch (e) {
     report.push({ table: 'difficultyconfig.mbin', error: e.message });
   }
-  return { items, stackBases, report, languageKeys: loc.size };
+  return { items, stackBases, rewards, report, languageKeys: loc.size };
+}
+
+// Account-wide unlockable rewards, in the game's table order (newest first).
+//   season: expedition rewards; the reward id is also the item id it grants
+//   twitch: Twitch drops; a reward id (TWITCH_406) plus the item it grants (S_POSTER29)
+// These ids are what the account file's UnlockedSeasonRewards / UnlockedTwitchRewards hold.
+function readRewards(archives) {
+  const read = (file) => {
+    try {
+      return readTable(archives.read(TABLES + file));
+    } catch {
+      return null;
+    }
+  };
+  // Inline id columns present in every record, by offset.
+  const fullColumns = (table) => {
+    const cols = new Map();
+    for (const rec of table.records) for (const x of rec) if (!x.line) cols.set(x.off, [...(cols.get(x.off) ?? []), x.s]);
+    return [...cols.values()].filter((v) => v.length === table.count);
+  };
+  const out = { season: [], twitch: [] };
+  const season = read('unlockableseasonrewards.mbin');
+  if (season) {
+    const id = fullColumns(season).find((v) => new Set(v).size === v.length);
+    if (id) out.season = id.map((reward) => ({ id: reward, item: reward }));
+  }
+  const twitch = read('unlockabletwitchrewards.mbin');
+  if (twitch) {
+    const cols = fullColumns(twitch);
+    const id = cols.find((v) => v.every((s) => s.startsWith('TWITCH_')) && new Set(v).size === v.length);
+    const item = cols.find((v) => v !== id);
+    if (id && item) out.twitch = id.map((reward, i) => ({ id: reward, item: item[i] }));
+  }
+  return out;
 }
 
 // Procedural products (PROC_BIO, PROC_SALV, ...) get seed-generated names in game,

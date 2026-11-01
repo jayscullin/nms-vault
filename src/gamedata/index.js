@@ -44,6 +44,17 @@ export function itemInfo(saveId) {
   return r && { key: r.key, type: r.type, stack: r.stack, core: r.core, chargeable: r.chargeable, procedural: Boolean(r.procedural), alias: r.alias ?? null };
 }
 
+// Unlockable account rewards with display info, or null without game data.
+export function rewardCatalog() {
+  if (!db?.available || !db.rewards) return null;
+  const withInfo = (list) =>
+    list.map(({ id, item }) => {
+      const r = resolveItem(db.items, item);
+      return { id, item, key: r?.key ?? null, name: r?.name ?? null, subtitle: r?.subtitle ?? null, icon: Boolean(r?.icon) };
+    });
+  return { season: withInfo(db.rewards.season), twitch: withInfo(db.rewards.twitch) };
+}
+
 // Items that can be added as new stacks: named, non-procedural products and
 // substances with a known stack multiplier.
 const addable = (item) =>

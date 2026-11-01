@@ -115,9 +115,9 @@ function moveToContainer(from, containerId) {
 function renderTopbar() {
   const v = state.view;
   $('#save-info').innerHTML = v
-    ? `<b>${esc(v.summary || v.file)}</b> · ${esc(v.file)} · ${esc(v.account)}`
+    ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · ${esc(v.file)} · ${esc(v.account)}`
     : '<span class="muted">No save open</span>';
-  $('#currencies').innerHTML = v
+  $('#currencies').innerHTML = v?.currencies
     ? Object.entries(v.currencies)
         .map(([k, n]) => `<label class="chip" title="Click to edit ${CURRENCY_LABELS[k]}"><small>${CURRENCY_LABELS[k]}</small><input data-currency="${k}" value="${fmt(n)}" inputmode="numeric" aria-label="${CURRENCY_LABELS[k]}"></label>`)
         .join('')
@@ -203,7 +203,10 @@ function renderHome() {
           (a) => `
         <div class="account">
           <header><div><b>${esc(a.kind)}</b> <span class="muted mono">${esc(a.id)}</span></div>
-            <button class="btn small" data-action="backups" data-account="${esc(a.id)}">Backups</button></header>
+            <div class="stack-row">
+              ${a.accountFile ? `<button class="btn small" data-action="open" data-account="${esc(a.id)}" data-file="accountdata.hg" title="Unlock expedition and Twitch rewards for this account">Account rewards</button>` : ''}
+              <button class="btn small" data-action="backups" data-account="${esc(a.id)}">Backups</button>
+            </div></header>
           ${slotGroups(a.slots).map((g) => renderSlotGroup(a, g)).join('')}
         </div>`,
         )
@@ -440,8 +443,65 @@ function renderEditor() {
 
 function render() {
   renderTopbar();
-  if (state.view) renderEditor();
+  if (state.view?.kind === 'account') renderRewards();
+  else if (state.view) renderEditor();
   else renderHome();
+}
+
+// ---- account rewards ---------------------------------------------------------
+
+state.rewardTab = 'season';
+state.rewardFilter = 'locked';
+state.rewardSel = new Set();
+
+function shownRewards() {
+  const q = state.search.trim().toLowerCase();
+  return state.view.lists[state.rewardTab].rewards.filter((r) => {
+    if (state.rewardFilter === 'locked' && r.unlocked) return false;
+    if (state.rewardFilter === 'unlocked' && !r.unlocked) return false;
+    return !q || (r.name ?? '').toLowerCase().includes(q) || r.id.toLowerCase().includes(q) || r.item.toLowerCase().includes(q);
+  });
+}
+
+function renderRewards() {
+  const lists = state.view.lists;
+  const list = lists[state.rewardTab];
+  const shown = shownRewards();
+  const lockedShown = shown.filter((r) => !r.unlocked);
+  const sel = [...state.rewardSel].filter((id) => list.rewards.some((r) => r.id === id && !r.unlocked));
+  const count = (l) => `${l.rewards.filter((r) => r.unlocked).length} / ${l.rewards.length}`;
+  app.innerHTML = `
+    <section class="rewards">
+      <h2>Account rewards</h2>
+      <p class="sub">Unlocked rewards become claimable in-game for every save on this account, from the expedition rewards terminal on the Space Anomaly. This edits <span class="mono">accountdata.hg</span>, with the same review, backup and verification as saves.</p>
+      ${state.view.gamedata ? '' : '<div class="warnings">Reward names need the game’s data files, which weren’t found.</div>'}
+      <div class="reward-bar">
+        <div class="tabs" role="tablist">${Object.entries(lists).map(([k, l]) => `<button class="tab ${k === state.rewardTab ? 'active' : ''}" role="tab" data-reward-tab="${k}">${esc(l.label)} <span class="muted">${count(l)}</span></button>`).join('')}</div>
+        <div class="tabs">${['locked', 'unlocked', 'all'].map((f) => `<button class="tab small ${f === state.rewardFilter ? 'active' : ''}" data-reward-filter="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>
+        <input type="search" id="search" placeholder="Search rewards…" value="${esc(state.search)}" aria-label="Search rewards">
+      </div>
+      <div class="reward-actions">
+        <button class="btn primary" data-action="unlock-selected" ${sel.length ? '' : 'disabled'}>Unlock selected (${sel.length})</button>
+        <button class="btn" data-action="unlock-shown" ${lockedShown.length ? '' : 'disabled'}>Unlock all ${state.search ? 'matching' : 'locked'} (${lockedShown.length})</button>
+        ${sel.length ? '<button class="btn small" data-action="clear-selection">Clear selection</button>' : ''}
+      </div>
+      <div class="reward-grid">${shown.map((r) => rewardCard(r, sel.includes(r.id))).join('') || '<p class="muted">Nothing to show.</p>'}</div>
+    </section>`;
+}
+
+function rewardCard(r, selected) {
+  const status = r.pending ? '<span class="tag pending">Unlocking</span>' : r.unlocked ? '<span class="tag ok">Unlocked</span>' : '';
+  return `
+    <button class="reward ${r.unlocked ? 'is-unlocked' : ''} ${selected ? 'selected' : ''}" data-reward="${esc(r.id)}" ${r.unlocked ? 'disabled' : ''} aria-pressed="${selected}">
+      ${r.icon && r.key ? `<img src="/icons/${encodeURIComponent(r.key)}.png" alt="" loading="lazy">` : '<span class="reward-noicon"></span>'}
+      <span class="reward-text"><b>${esc(r.name ?? r.id)}</b><span class="muted small">${esc(r.subtitle ?? '')}</span><span class="mono muted">${esc(r.id)}</span></span>
+      ${status || `<span class="check">${selected ? '✓' : ''}</span>`}
+    </button>`;
+}
+
+function unlock(ids) {
+  if (!ids.length) return;
+  return applyOp({ op: 'unlockRewards', list: state.rewardTab, ids }).then(() => state.rewardSel.clear()).then(render);
 }
 
 // ---- modals ----------------------------------------------------------------
@@ -470,6 +530,11 @@ function describeOp(op) {
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
+    case 'unlockRewards': {
+      const names = op.ids.map((id) => state.view.lists?.[op.list]?.rewards.find((r) => r.id === id)?.name ?? id);
+      const label = (state.view.lists?.[op.list]?.label.toLowerCase() ?? 'rewards').replace(/s$/, op.ids.length === 1 ? '' : 's');
+      return `Unlock ${op.ids.length} ${label}: ${names.slice(0, 4).join(', ')}${names.length > 4 ? `, and ${names.length - 4} more` : ''}`;
+    }
     default: return op.op;
   }
 }
@@ -543,11 +608,22 @@ async function loadAccounts() {
 }
 
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('[data-action],[data-select],[data-slot],[data-cell],[data-jump]');
+  const t = e.target.closest('[data-action],[data-select],[data-slot],[data-cell],[data-jump],[data-reward],[data-reward-tab],[data-reward-filter]');
   if (!t) return;
   if (t.matches('.modal-backdrop') && e.target !== t) return;
   const d = t.dataset;
 
+  if (d.reward) {
+    if (state.rewardSel.has(d.reward)) state.rewardSel.delete(d.reward);
+    else state.rewardSel.add(d.reward);
+    return render();
+  }
+  if (d.rewardTab || d.rewardFilter) {
+    if (d.rewardTab) state.rewardTab = d.rewardTab;
+    if (d.rewardFilter) state.rewardFilter = d.rewardFilter;
+    state.rewardSel.clear();
+    return render();
+  }
   if (d.jump) {
     state.selected = d.jump;
     state.slot = { inv: d.inv, x: Number(d.x), y: Number(d.y) };
@@ -581,8 +657,10 @@ document.addEventListener('click', async (e) => {
     case 'open':
       return run(async () => {
         state.view = await api('/api/open', { account: d.account, file: d.file });
-        state.selected = state.view.containers[0]?.id;
+        state.selected = state.view.containers?.[0]?.id;
         state.slot = null;
+        state.search = '';
+        state.rewardSel.clear();
         render();
       });
     case 'undo':
@@ -620,6 +698,16 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: d.action, ...state.slot });
     case 'add-item':
       return openAddItem();
+    case 'unlock-selected':
+      return unlock([...state.rewardSel]);
+    case 'unlock-shown': {
+      const ids = shownRewards().filter((r) => !r.unlocked).map((r) => r.id);
+      if (ids.length > 10 && !confirm(`Unlock ${ids.length} rewards? You can still review before anything is written.`)) return;
+      return unlock(ids);
+    }
+    case 'clear-selection':
+      state.rewardSel.clear();
+      return render();
     case 'add-confirm': {
       const amount = Number($(`[data-add-amount="${CSS.escape(d.id)}"]`)?.value);
       const before = state.view.ops;

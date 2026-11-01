@@ -10,6 +10,7 @@ import { diffTrees } from '../src/validate.js';
 import { subsetOf, anchorsOf, encodePng, decodeDds } from '../src/gamedata/dds.js';
 import { resolveItem } from '../src/gamedata/itemdb.js';
 import { readStackBases, ruleLimit } from '../src/gamedata/stacks.js';
+import { applyRewardOp } from '../src/rewards.js';
 import zlib from 'node:zlib';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
@@ -118,6 +119,17 @@ test('stack bases are found after the High substance run and rules apply cap and
   assert.equal(ruleLimit(bases, 'High', 'Product', 'Personal', 0), 1);
   assert.equal(ruleLimit(bases, 'Low', 'Substance', 'Ship', 1), 300);
   assert.equal(ruleLimit(bases, 'High', 'Product', 'NoSuchGroup', 1), null);
+});
+
+test('reward unlocking adds only known rewards and keeps the list sorted', () => {
+  const tree = { UserSettingsData: { UnlockedSeasonRewards: ['^A_ONE', '^C_THREE'], UnlockedTwitchRewards: [] } };
+  const catalog = { season: [{ id: 'A_ONE' }, { id: 'B_TWO' }, { id: 'D_FOUR' }], twitch: [{ id: 'TWITCH_001' }] };
+  const r = applyRewardOp(tree, catalog, { op: 'unlockRewards', list: 'season', ids: ['D_FOUR', 'B_TWO', 'A_ONE'] });
+  assert.deepEqual(tree.UserSettingsData.UnlockedSeasonRewards, ['^A_ONE', '^B_TWO', '^C_THREE', '^D_FOUR']);
+  assert.deepEqual(r.touched, [['UserSettingsData', 'UnlockedSeasonRewards']]);
+  assert.throws(() => applyRewardOp(tree, catalog, { op: 'unlockRewards', list: 'season', ids: ['NOPE'] }), /isn't one of/);
+  assert.throws(() => applyRewardOp(tree, catalog, { op: 'unlockRewards', list: 'season', ids: ['A_ONE'] }), /already unlocked/);
+  assert.throws(() => applyRewardOp(tree, catalog, { op: 'unlockRewards', list: 'other', ids: ['A_ONE'] }), /Unknown reward list/);
 });
 
 test('diff flags changes outside allowed paths', () => {

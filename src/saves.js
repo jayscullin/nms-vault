@@ -12,13 +12,16 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog } from './gamedata/index.js';
+import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 export const mapping = loadMapping(path.join(here, '..', 'data', 'mapping.json'));
 
 const META_SIZE_WORD = 14; // decompressed size (text + NUL) in Frontiers-era and later manifests
 const SAVE_FILE = /^save\d*\.hg$/;
+// Account-wide settings and unlocks, shared by every save slot.
+export const ACCOUNT_FILE = 'accountdata.hg';
 
 export const vaultHome = process.env.NMS_VAULT_HOME ?? path.join(os.homedir(), '.nms-vault');
 const backupRoot = path.join(vaultHome, 'backups');
@@ -90,6 +93,7 @@ export function listAccounts() {
         dir,
         kind: entry.name === 'DefaultUser' ? 'GOG' : 'Steam',
         slots,
+        accountFile: fs.existsSync(path.join(dir, ACCOUNT_FILE)),
       });
     }
   }
@@ -99,7 +103,8 @@ export function listAccounts() {
 export function resolveSave(accountId, file) {
   const account = listAccounts().find((a) => a.id === accountId);
   if (!account) throw new OpError('Unknown account');
-  if (!SAVE_FILE.test(file) || !account.slots.some((s) => s.file === file)) throw new OpError('Unknown save file');
+  const known = file === ACCOUNT_FILE ? account.accountFile : SAVE_FILE.test(file) && account.slots.some((s) => s.file === file);
+  if (!known) throw new OpError('Unknown save file');
   return { account, savePath: path.join(account.dir, file), metaPath: path.join(account.dir, `mf_${file}`) };
 }
 
@@ -252,9 +257,13 @@ export function openSession(accountId, file) {
   const decoded = decodeSave(original);
   const readable = deobfuscate(decoded.text, mapping);
   const tree = parse(readable);
-  const containers = catalog(tree);
+  // The account file holds settings and unlocks, not inventories.
+  const kind = file === ACCOUNT_FILE ? 'account' : 'save';
+  const containers = kind === 'save' ? catalog(tree) : [];
   const s = {
     id: crypto.randomUUID(),
+    kind,
+    rewards: kind === 'account' ? rewardCatalog() : null,
     account,
     file,
     savePath,
@@ -268,7 +277,7 @@ export function openSession(accountId, file) {
     origTree: tree,
     containers,
     cat: indexCatalog(containers),
-    stacks: stackPolicy(tree, containers),
+    stacks: kind === 'save' ? stackPolicy(tree, containers) : null,
     ops: [],
     warnings: [],
     work: null,
@@ -284,7 +293,21 @@ export function getSession(id) {
   return s;
 }
 
+function accountView(s) {
+  const lists = {};
+  for (const key of Object.keys(REWARD_LISTS)) {
+    const unlocked = new Set(unlockedIds(s.work, key));
+    const before = new Set(unlockedIds(s.origTree, key));
+    lists[key] = {
+      label: REWARD_LISTS[key].label,
+      rewards: (s.rewards?.[key] ?? []).map((r) => ({ ...r, unlocked: unlocked.has(r.id), pending: unlocked.has(r.id) && !before.has(r.id) })),
+    };
+  }
+  return { kind: 'account', sessionId: s.id, account: s.account.id, file: s.file, ops: s.ops.length, warnings: s.warnings, gamedata: Boolean(s.rewards), lists };
+}
+
 export function sessionView(s) {
+  if (s.kind === 'account') return accountView(s);
   const v = view(s.work, s.containers);
   // Item info is sent once per distinct id rather than per slot.
   const items = {};
@@ -344,6 +367,7 @@ function opScope(s, op) {
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];
     case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
     case 'rename': return [s.cat.names.get(op.target)];
+    case 'unlockRewards': return [REWARD_LISTS[op.list] ? ['UserSettingsData', REWARD_LISTS[op.list].field] : undefined];
     default: return [undefined];
   }
 }
@@ -377,7 +401,7 @@ function applyToSession(s, op) {
     for (const { parent, key, value } of saved.reverse()) parent[key] = value;
   };
   try {
-    const { touched, warnings } = applyOp(tree, s.cat, s.stacks, op);
+    const { touched, warnings } = s.kind === 'account' ? applyRewardOp(tree, s.rewards, op) : applyOp(tree, s.cat, s.stacks, op);
     for (const p of touched) {
       if (p.at(-1) !== 'Slots') continue;
       const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
@@ -407,7 +431,10 @@ export function resetOps(s) {
 function replay(s) {
   const tree = parse(s.readable);
   s.warnings = [];
-  for (const { op } of s.ops) s.warnings.push(...applyOp(tree, s.cat, s.stacks, op).warnings.map(nameIds));
+  for (const { op } of s.ops) {
+    const r = s.kind === 'account' ? applyRewardOp(tree, s.rewards, op) : applyOp(tree, s.cat, s.stacks, op);
+    s.warnings.push(...r.warnings.map(nameIds));
+  }
   s.work = tree;
 }
 
@@ -443,16 +470,22 @@ export function review(s) {
   const { changed, unexpected } = diffTrees(s.origTree, s.work, allowed);
   add('Only intended values changed', unexpected.length === 0, unexpected.length ? `Unexpected: ${unexpected.join(', ')}` : `${changed.length} region(s) changed`);
 
-  const problems = allowed
-    .filter((p) => p.at(-1) === 'Slots')
-    .flatMap((p) => {
-      const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
-      return inventoryProblems(get(s.work, p.slice(0, -1))).filter((x) => !before.includes(x));
-    });
-  add('Inventory rules hold', problems.length === 0, problems.slice(0, 3).join('; ') || undefined);
+  if (s.kind === 'save') {
+    const problems = allowed
+      .filter((p) => p.at(-1) === 'Slots')
+      .flatMap((p) => {
+        const before = inventoryProblems(get(s.origTree, p.slice(0, -1)));
+        return inventoryProblems(get(s.work, p.slice(0, -1))).filter((x) => !before.includes(x));
+      });
+    add('Inventory rules hold', problems.length === 0, problems.slice(0, 3).join('; ') || undefined);
 
-  const stackIssues = allowed.filter((p) => p.at(-1) === 'Slots').flatMap((p) => stackProblems(s, p.slice(0, -1)));
-  add('Stack limits match the game', stackIssues.length === 0, stackIssues.slice(0, 3).join('; ') || `${s.stacks.difficulty} stack limits`);
+    const stackIssues = allowed.filter((p) => p.at(-1) === 'Slots').flatMap((p) => stackProblems(s, p.slice(0, -1)));
+    add('Stack limits match the game', stackIssues.length === 0, stackIssues.slice(0, 3).join('; ') || `${s.stacks.difficulty} stack limits`);
+  } else {
+    const known = new Set(Object.keys(REWARD_LISTS).flatMap((k) => (s.rewards?.[k] ?? []).map((r) => `${k}|${r.id}`)));
+    const strays = Object.keys(REWARD_LISTS).flatMap((k) => unlockedIds(s.work, k).filter((id) => !unlockedIds(s.origTree, k).includes(id) && !known.has(`${k}|${id}`)));
+    add('Only the game’s own rewards added', strays.length === 0, strays.slice(0, 3).join(', ') || undefined);
+  }
 
   const readable = stringify(s.work);
   const text = obfuscate(readable, mapping);
@@ -463,7 +496,9 @@ export function review(s) {
   add('Compressed data decodes exactly', decodeSave(bytes).text === text, `${(bytes.length / 1024).toFixed(0)} KiB`);
 
   const ratio = text.length / s.text.length;
-  add('Size is plausible', ratio > 0.95 && ratio < 1.05, `${((ratio - 1) * 100).toFixed(3)}% size change`);
+  // The account file is small, so unlocking many rewards grows it more in relative terms.
+  const maxGrowth = s.kind === 'account' ? 1.3 : 1.05;
+  add('Size is plausible', ratio > 0.95 && ratio < maxGrowth, `${((ratio - 1) * 100).toFixed(3)}% size change`);
 
   let metaBytes = null;
   const meta = readMeta(s.metaPath, s.file, s.text.length, s.originalSize);
