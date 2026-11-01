@@ -255,7 +255,7 @@ function renderGrid(inv) {
         <div class="cell ${unlocked ? '' : 'locked'} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}">
           ${
             s
-              ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}" draggable="true" data-slot title="${esc(itemName(s.id))} (${esc(s.id)})">
+              ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
                   ${icon ? `<img src="${icon}" alt="" loading="lazy" draggable="false">` : `<span class="mono-tag">${esc(monogram(s.id))}</span><span class="name">${esc(itemName(s.id))}</span>`}
                   ${s.type === 'Technology' ? '' : `<span><span class="amt">${fmt(s.amount)}/${fmt(s.max)}</span><span class="bar"><i style="width:${Math.min(100, (s.amount / Math.max(1, s.max)) * 100)}%"></i></span></span>`}
                 </button>`
@@ -669,6 +669,70 @@ document.addEventListener('keydown', (e) => {
     run(async () => { state.view = await api('/api/undo', { sessionId: state.view.sessionId }); render(); });
   }
 });
+
+// ---- item tooltip --------------------------------------------------------------
+
+const DESC_MAX = 320;
+let tipTimer = null;
+let tipFor = null;
+
+function tooltipHtml(s) {
+  const meta = info(s.id);
+  const desc = meta?.desc && (meta.desc.length > DESC_MAX ? `${meta.desc.slice(0, DESC_MAX).replace(/\s+\S*$/, '')}…` : meta.desc);
+  const qty = s.type === 'Technology'
+    ? (s.amount >= 0 && s.max > 0 && meta?.chargeable ? `Charge ${fmt(s.amount)} / ${fmt(s.max)}` : '')
+    : `${fmt(s.amount)} / ${fmt(s.max)}`;
+  const status = [s.damage > 0 ? (s.installed ? 'Broken slot' : 'Damaged') : '', meta?.core ? 'Core' : ''].filter(Boolean).join(' · ');
+  return `
+    <div class="tip-head t-${esc(s.type)}"><span class="dot"></span><b>${esc(itemName(s.id))}</b></div>
+    ${meta?.subtitle ? `<div class="tip-sub">${esc(meta.subtitle)}</div>` : ''}
+    ${qty || status ? `<div class="tip-qty">${esc([qty, status].filter(Boolean).join(' · '))}</div>` : ''}
+    ${desc ? `<p class="tip-desc">${esc(desc)}</p>` : ''}
+    <div class="tip-id mono">${esc(s.id)}</div>`;
+}
+
+function showTip(tile) {
+  const cell = tile.closest('[data-cell]');
+  const s = slotAt(findInv(cell.dataset.inv), Number(cell.dataset.x), Number(cell.dataset.y));
+  if (!s) return;
+  let tip = $('#item-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'item-tip';
+    tip.setAttribute('role', 'tooltip');
+    document.body.append(tip);
+  }
+  tip.innerHTML = tooltipHtml(s);
+  tip.hidden = false;
+  // Beside the tile, flipped or clamped to stay inside the viewport.
+  const r = tile.getBoundingClientRect();
+  const t = tip.getBoundingClientRect();
+  const gap = 8;
+  let left = r.right + gap;
+  if (left + t.width > window.innerWidth - gap) left = r.left - gap - t.width;
+  left = Math.max(gap, left);
+  const top = Math.min(Math.max(gap, r.top), window.innerHeight - t.height - gap);
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipFor = null;
+  const tip = $('#item-tip');
+  if (tip) tip.hidden = true;
+}
+
+document.addEventListener('mouseover', (e) => {
+  const tile = e.target.closest?.('.tile');
+  if (tile === tipFor) return;
+  hideTip();
+  if (!tile || dragFrom) return;
+  tipFor = tile;
+  tipTimer = setTimeout(() => showTip(tile), 250);
+});
+document.addEventListener('scroll', hideTip, true);
+document.addEventListener('mousedown', hideTip);
 
 // Why an item can't be dropped into an inventory, or null if it can. Mirrors the
 // server's rules so blocked targets show before dropping; the server still decides.
