@@ -40,15 +40,19 @@ button { cursor: pointer; }
 .brand { display: flex; align-items: center; gap: 8px; background: none; border: 0; font-weight: 650; font-size: 15px; padding: 0; }
 .save-info { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .save-info b { color: var(--text); font-weight: 600; }
-.currencies { display: flex; gap: 8px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
-  border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2);
-  font-variant-numeric: tabular-nums;
+/* Units / Nanites / Quicksilver: three equal boxes across the middle column. */
+.currency-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 20px; }
+.currency {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; cursor: text;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
 }
-.chip small { color: var(--muted); }
-.chip input { width: 110px; background: transparent; border: 0; outline: none; text-align: right; }
+.currency:focus-within { border-color: var(--accent); }
+.currency small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.currency input { width: 100%; background: transparent; border: 0; outline: none; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; padding: 0; }
 .pending { display: flex; gap: 8px; align-items: center; }
+.btn .icon { display: block; }
+.btn.primary .icon { display: inline-block; vertical-align: -3px; margin-right: 4px; }
+.icon-btn { padding: 6px 8px; line-height: 0; }
 
 .btn {
   border: 1px solid var(--line); background: var(--panel-2); border-radius: 6px; padding: 6px 12px;
@@ -91,6 +95,16 @@ main { flex: 1; min-height: 0; display: flex; }
 .sidebar { width: 260px; border-right: 1px solid var(--line); overflow: auto; background: var(--panel); flex-shrink: 0; }
 .sidebar .search { padding: 12px; position: sticky; top: 0; background: var(--panel); z-index: 1; border-bottom: 1px solid var(--line); }
 .sidebar input[type=search] { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+/* Each sidebar group in its own rounded box. */
+.nav-group { margin: 10px 10px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; padding-bottom: 4px; }
+.nav-group:last-child { margin-bottom: 12px; }
+.nav-group > .nav-item:first-child { margin-top: 4px; }
+.nav-group .group-title { padding-top: 10px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.with-icon .icon { flex-shrink: 0; }
+.group-title .with-icon .icon { color: var(--text); opacity: .8; }
+.group-title:hover .with-icon .icon, .group-title.active .with-icon .icon { color: var(--accent); opacity: 1; }
+h2.with-icon .icon { color: var(--accent); }
 .group-title {
   display: flex; justify-content: space-between; align-items: baseline; width: 100%;
   border: 0; background: none; text-align: left; cursor: pointer;
@@ -251,6 +265,8 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 .shortcuts { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .shortcuts td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .shortcuts td:first-child { width: 110px; }
+.global-tools { display: flex; gap: 8px; margin-left: auto; }
+.btn.active { border-color: var(--accent); color: var(--accent); }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
 .modal-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }

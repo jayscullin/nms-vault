@@ -79,9 +79,22 @@ test('unlock a title in the account file', async ({ page }) => {
   expect(verifyFile('accountdata.hg').ok).toBe(true);
 });
 
-test('the item catalogue works without a save', async ({ page }) => {
+test('the item catalogue works without a save, from the top bar', async ({ page }) => {
   await home(page);
-  await page.locator('[data-action="catalogue"]').click();
+  await page.locator('.topbar [data-action="catalogue"]').click();
   await page.locator('#search').fill('pulse engine');
   await expect(page.locator('.cat-row').first()).toContainText('Pulse Engine');
+});
+
+test('the catalogue opens over an open save and closing it keeps staged changes', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await cell(page, 0, 0, 0).locator('.tile').click();
+  await page.keyboard.press('f');
+  await expect(page.locator('.badge')).toHaveText('1');
+  await page.locator('.topbar [data-action="catalogue"]').click();
+  await expect(page.getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
+  await expect(page.locator('.topbar [data-action="catalogue"]')).toHaveText('Close catalogue');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.content h2')).toContainText('Exosuit');
+  await expect(page.locator('.badge')).toHaveText('1');
 });

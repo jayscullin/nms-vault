@@ -98,4 +98,6 @@ NMS Vault's code is released under the [MIT License](LICENSE).
 
 `data/mapping.json` comes from [MBINCompiler](https://github.com/monkeyman192/MBINCompiler) by monkeyman192 and contributors, and is used unmodified under the GNU LGPL v3. See [data/NOTICE.md](data/NOTICE.md) for its source, version and license texts.
 
+Interface glyphs are from [Lucide](https://lucide.dev) (ISC licence), copied into `public/icons.js`. See `public/vendor/LICENSE-lucide.txt`.
+
 NMS Vault is an unofficial fan tool and is not affiliated with or endorsed by Hello Games. No Man's Sky is a trademark of Hello Games. Item names, descriptions and icons are read from your own installed copy of the game at runtime and are not included in this repository.

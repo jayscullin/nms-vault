@@ -1,6 +1,10 @@
 // NMS Vault UI. All edits go through the server, which validates each one;
 // the page only renders the server's view of the working copy.
 
+import { icon, GROUP_ICONS } from './icons.js';
+
+const groupIcon = (group, size = 14) => (GROUP_ICONS[group] ? icon(GROUP_ICONS[group], size) : '');
+
 const TOKEN = document.querySelector('meta[name=vault-token]').content;
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = $('#app');
@@ -117,17 +121,23 @@ function renderTopbar() {
   $('#save-info').innerHTML = v
     ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · ${esc(v.file)} · ${esc(v.account)}`
     : '<span class="muted">No save open</span>';
-  $('#currencies').innerHTML = v?.currencies
-    ? Object.entries(v.currencies)
-        .map(([k, n]) => `<label class="chip" title="Click to edit ${CURRENCY_LABELS[k]}"><small>${CURRENCY_LABELS[k]}</small><input data-currency="${k}" value="${fmt(n)}" inputmode="numeric" aria-label="${CURRENCY_LABELS[k]}"></label>`)
-        .join('')
-    : '';
   $('#pending').innerHTML = v
     ? `${v.ops ? `<span class="badge" title="Pending changes">${v.ops}</span>` : ''}
-       <button class="btn small" data-action="undo" ${v.ops ? '' : 'disabled'}>Undo</button>
-       <button class="btn small" data-action="reset" ${v.ops ? '' : 'disabled'}>Discard</button>
-       <button class="btn primary" data-action="review" ${v.ops ? '' : 'disabled'}>Review &amp; write</button>`
+       <button class="btn icon-btn" data-action="undo" aria-label="Undo" title="Undo (⌘Z)" ${v.ops ? '' : 'disabled'}>${icon('undo')}</button>
+       <button class="btn icon-btn" data-action="reset" aria-label="Reset: discard all changes" title="Reset: discard all changes" ${v.ops ? '' : 'disabled'}>${icon('discard')}</button>
+       <button class="btn primary" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
     : '';
+  // Global tools, on every page.
+  const inCatalogue = state.mode === 'catalogue';
+  $('#global-tools').innerHTML = state.gamedata?.available
+    ? `<button class="btn small ${inCatalogue ? 'active' : ''}" data-action="catalogue" aria-pressed="${inCatalogue}" title="Browse every item in the game">${inCatalogue ? 'Close catalogue' : 'Item catalogue'}</button>`
+    : '';
+}
+
+function closeCatalogue() {
+  state.mode = null;
+  state.search = state.searchBeforeCatalogue ?? '';
+  render();
 }
 
 // ---- save picker -----------------------------------------------------------
@@ -202,7 +212,7 @@ function renderHome() {
   const accounts = state.accounts;
   app.innerHTML = `
     <section class="home">
-      <div class="home-head"><h1>Choose a save</h1>${state.gamedata?.available ? '<button class="btn" data-action="catalogue">Item catalogue</button>' : ''}</div>
+      <h1>Choose a save</h1>
       <p class="lead">Edits are staged in memory and validated. Nothing touches your save until you review and confirm, and every write is backed up first.</p>
       ${state.where ? `<p class="gamedata">Save folder: <span class="mono">${esc(state.where.saveRoots.join(', '))}</span></p>` : ''}
       ${state.gamedata ? `<p class="gamedata ${state.gamedata.available ? '' : 'warn'}">${state.gamedata.available ? `Item names and icons: ${fmt(state.gamedata.items)} items read from your game install.` : `Item names unavailable — ${esc(state.gamedata.reason)}`}</p>` : ''}
@@ -233,12 +243,15 @@ function renderSidebar() {
   return `
     <nav class="sidebar">
       <div class="search"><input type="search" id="search" placeholder="Find items…" value="${esc(state.search)}" aria-label="Find items"></div>
-      <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span>All items</span></button>
-      <button class="nav-item ${state.selected === 'knowledge' ? 'active' : ''}" data-select="knowledge"><span>Knowledge</span><span class="count">words &amp; blueprints</span></button>
+      <div class="nav-group">
+        <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span class="with-icon">${icon('items', 14)}All items</span></button>
+        <button class="nav-item ${state.selected === 'knowledge' ? 'active' : ''}" data-select="knowledge"><span class="with-icon">${icon('knowledge', 14)}Knowledge</span><span class="count">words &amp; blueprints</span></button>
+      </div>
       ${[...groups]
         .map(
           ([group, list]) => `
-        <button class="group-title ${state.selected === `group:${group}` ? 'active' : ''}" data-select="group:${esc(group)}" title="Show all ${esc(group)} together">${esc(group)} <span class="count">${list.length > 1 ? `all ${list.length}` : ''}</span></button>
+      <div class="nav-group">
+        <button class="group-title ${state.selected === `group:${group}` ? 'active' : ''}" data-select="group:${esc(group)}" title="Show all ${esc(group)} together"><span class="with-icon">${groupIcon(group)}${esc(group)}</span> <span class="count">${list.length > 1 ? `all ${list.length}` : ''}</span></button>
         ${list
           .map(
             (c) => `
@@ -247,7 +260,8 @@ function renderSidebar() {
             <span class="count">${count(c) || ''}</span>
           </button>`,
           )
-          .join('')}`,
+          .join('')}
+      </div>`,
         )
         .join('')}
     </nav>`;
@@ -310,7 +324,7 @@ function renderGroup(group) {
   const members = state.view.containers.filter((c) => c.group === group);
   const techOnly = members.every((c) => c.inventories.every((i) => i.kind === 'tech'));
   return `
-    <h2>${esc(group)}</h2>
+    <h2 class="with-icon">${groupIcon(group, 20)}${esc(group)}</h2>
     <p class="sub">${members.length} ${members.length === 1 ? 'entry' : 'entries'}. Drag items between any of them.${techOnly ? ' Technology stays in its own grid, so here you can rearrange each one but not move tech between them.' : ''}</p>
     ${members
       .map(
@@ -492,11 +506,26 @@ async function openAddItem() {
   await run(search);
 }
 
+// Units, Nanites and Quicksilver across the top of the middle column, on every save page.
+function renderCurrencies() {
+  const v = state.view;
+  if (!v?.currencies) return '';
+  return `
+    <div class="currency-bar">${Object.entries(v.currencies)
+      .map(([k, n]) => `
+      <label class="currency" title="Click to edit ${CURRENCY_LABELS[k]}">
+        <small>${CURRENCY_LABELS[k]}</small>
+        <input data-currency="${k}" value="${fmt(n)}" inputmode="numeric" aria-label="${CURRENCY_LABELS[k]}">
+      </label>`)
+      .join('')}
+    </div>`;
+}
+
 function renderEditor() {
   const c = state.view.containers.find((x) => x.id === state.selected);
   app.innerHTML = `
     ${renderSidebar()}
-    <section class="content">${
+    <section class="content">${renderCurrencies()}${
       state.selected === 'knowledge' ? renderKnowledge()
         : state.selected?.startsWith('group:') ? renderGroup(state.selected.slice(6))
         : state.selected === 'items' || !c ? renderItems()
@@ -507,7 +536,7 @@ function renderEditor() {
 
 function render() {
   renderTopbar();
-  if (state.mode === 'catalogue' && !state.view) renderCatalogue();
+  if (state.mode === 'catalogue') renderCatalogue();
   else if (state.view?.kind === 'account') renderRewards();
   else if (state.view) renderEditor();
   else renderHome();
@@ -976,7 +1005,10 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: 'sortInventory', inv: d.inv, by: state.sortBy, combine: state.sortCombine });
     }
     case 'catalogue':
+      // Opens over whatever is showing; a save stays open with its staged changes.
+      if (state.mode === 'catalogue') return closeCatalogue();
       state.mode = 'catalogue';
+      state.searchBeforeCatalogue = state.search;
       state.search = '';
       render();
       return run(loadCatalogue);
@@ -1035,7 +1067,7 @@ document.addEventListener('input', (e) => {
     box?.focus();
     box?.setSelectionRange(pos, pos);
   };
-  if (state.mode === 'catalogue' && !state.view) {
+  if (state.mode === 'catalogue') {
     // The catalogue searches on the server; wait for typing to pause.
     clearTimeout(catalogueTimer);
     catalogueTimer = setTimeout(() => run(loadCatalogue).then(refocus), 200);
@@ -1053,7 +1085,9 @@ document.addEventListener('focusout', (e) => {
   const field = e.target.dataset.currency;
   if (!field) return;
   const value = Number(e.target.value.replace(/[^\d]/g, ''));
-  if (value === state.view.currencies[field]) return renderTopbar();
+  // Unchanged: just restore the formatting (a full redraw here could swallow the click
+  // that moved focus away).
+  if (value === state.view.currencies[field]) return (e.target.value = fmt(value));
   applyOp({ op: 'setCurrency', field, value });
 });
 // ---- keyboard shortcuts ------------------------------------------------------
@@ -1114,7 +1148,7 @@ function targetInventory(ok) {
 
 async function onShortcut(e) {
   const v = state.view;
-  const inEditor = v && v.kind !== 'account' && !['knowledge', 'items'].includes(state.selected);
+  const inEditor = v && v.kind !== 'account' && state.mode !== 'catalogue' && !['knowledge', 'items'].includes(state.selected);
   const selected = state.slot && findInv(state.slot.inv);
   const s = selected && slotAt(selected, state.slot.x, state.slot.y);
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -1149,6 +1183,7 @@ document.addEventListener('keydown', (e) => {
   const reviewOpen = $('#modal-root [data-action="commit"]');
   if (e.key === 'Escape') {
     if ($('#modal-root .modal')) return closeModal();
+    if (state.mode === 'catalogue') return closeCatalogue();
     if (state.slot && !typing(e.target)) {
       state.slot = null;
       return render();
