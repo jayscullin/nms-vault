@@ -39,6 +39,8 @@ First run of the browser tests: `npm install && npx playwright install chromium`
   - With Steam Cloud on, saves deleted or moved outside the game can come back the next time the game starts. Delete saves from the game's load menu if you want them gone for good.
 - **Export** any save as indented JSON with readable keys, for reading. It can't be imported back.
 - **Item catalogue:** browse and search every item in your installed game, with descriptions, stack multipliers and technology flags. No save needed.
+- **Sort** general and storage inventories by type, name or amount, optionally combining partial stacks up to the game's stack limit. Technology never moves, because its position affects adjacency bonuses.
+- **Unlock slots:** unlock every locked cell in an exosuit, starship, multi-tool, freighter or exocraft grid, general or technology. Storage containers and base inventories are capped by the game below their grid size (for example 50 of 60), so they're left alone. Grids aren't enlarged.
 - Undo, discard, and a review screen before anything is written.
 
 ## How it stays non-destructive

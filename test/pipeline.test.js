@@ -126,6 +126,21 @@ test('sort lays items out row by row, combines stacks within limits, and leaves 
   assert.deepEqual(readTree('save.hg').BaseContext.PlayerStateData.Inventory_TechOnly, JSON.parse(stringify(tree.BaseContext.PlayerStateData.Inventory_TechOnly)));
 });
 
+test('unlock slots fills the grid row by row, but not storage with a game cap', async () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const ship = S.sessionView(s).containers.find((c) => c.group === 'Starships').inventories[0];
+  assert.equal(ship.valid.length, 10);
+  S.addOp(s, { op: 'unlockSlots', inv: ship.id });
+  assert.throws(() => S.addOp(s, { op: 'unlockSlots', inv: ship.id }), /already unlocked/);
+  const chest = S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  assert.throws(() => S.addOp(s, { op: 'unlockSlots', inv: chest.id }), /slot limit/);
+  const r = await S.commit(s);
+  assert.ok(r.ok, JSON.stringify(r.checks.filter((c) => !c.ok)));
+  const valid = readTree('save.hg').BaseContext.PlayerStateData.ShipOwnership[0].Inventory.ValidSlotIndices;
+  assert.deepEqual(valid, Array.from({ length: 15 }, (_, i) => ({ X: i % 5, Y: Math.floor(i / 5) })));
+});
+
 test('account file round-trips; rewards need game data', () => {
   fresh();
   const s = S.openSession(ACCOUNT, 'accountdata.hg');

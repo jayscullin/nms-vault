@@ -343,10 +343,16 @@ state.sortBy = 'type';
 state.sortCombine = true;
 
 function sortTools(inv) {
-  if (!BULK.has(inv.kind) || inv.slots.filter((s) => s.type !== 'Technology').length < 2) return '';
+  const locked = inv.width * inv.height - inv.valid.length;
+  // Matches src/inventory.js: storage and base inventories have game caps below their grid.
+  const unlock = (inv.kind === 'general' || inv.kind === 'tech') && locked > 0
+    ? `<button class="btn small" data-action="unlock-slots" data-inv="${esc(inv.id)}" title="Unlock every locked cell in this grid">Unlock ${locked} slot${locked === 1 ? '' : 's'}</button>`
+    : '';
+  if (!BULK.has(inv.kind) || inv.slots.filter((s) => s.type !== 'Technology').length < 2) return unlock ? `<span class="inv-tools">${unlock}</span>` : '';
   const opts = [['type', 'Type'], ['name', 'Name'], ['amount', 'Amount']];
   return `
     <span class="inv-tools">
+      ${unlock}
       <select data-sort-by aria-label="Sort ${esc(inv.label)} by">${opts.map(([v, l]) => `<option value="${v}" ${v === state.sortBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <label class="combine" title="Merge partial stacks of the same item, up to the game's stack limit"><input type="checkbox" data-sort-combine ${state.sortCombine ? 'checked' : ''}> Combine stacks</label>
       <button class="btn small" data-action="sort" data-inv="${esc(inv.id)}">Sort</button>
@@ -762,6 +768,7 @@ function describeOp(op) {
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'sortInventory': return `Sort ${at(op)} by ${op.by}${op.combine ? ', combining stacks' : ''}`;
+    case 'unlockSlots': return `Unlock all slots in ${at(op)}`;
     case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'learnWords': return `Learn all ${op.races.map((r) => state.view.knowledge?.words.find((w) => w.race === r)?.name ?? r).join(', ')} words`;
     case 'learnBlueprints': return `Learn ${op.ids.length} blueprint${op.ids.length === 1 ? '' : 's'}: ${op.ids.slice(0, 4).map((id) => state.view.knowledge?.blueprints.find((b) => b.id === id)?.name ?? id).join(', ')}${op.ids.length > 4 ? `, and ${op.ids.length - 4} more` : ''}`;
@@ -950,6 +957,8 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: d.action, ...state.slot });
     case 'add-item':
       return openAddItem();
+    case 'unlock-slots':
+      return applyOp({ op: 'unlockSlots', inv: d.inv });
     case 'sort': {
       const tools = t.closest('.inv-tools');
       state.sortBy = tools.querySelector('[data-sort-by]').value;

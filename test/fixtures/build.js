@@ -27,9 +27,10 @@ const slot = (type, id, amount, max, x, y, extra = {}) => ({
   Index: { X: x, Y: y },
 });
 
-const inventory = (group, width, height, slots, name = '') => ({
+// `unlocked` cells are unlocked row by row, like the game does as you buy slots.
+const inventory = (group, width, height, slots, name = '', unlocked = width * height) => ({
   Slots: slots,
-  ValidSlotIndices: Array.from({ length: width * height }, (_, i) => ({ X: i % width, Y: Math.floor(i / width) })),
+  ValidSlotIndices: Array.from({ length: unlocked }, (_, i) => ({ X: i % width, Y: Math.floor(i / width) })),
   Class: { InventoryClass: 'C' },
   StackSizeGroup: { InventoryStackSizeGroup: group },
   BaseStatValues: [],
@@ -42,7 +43,8 @@ const inventory = (group, width, height, slots, name = '') => ({
 });
 
 export function saveTree({ id = SAVE_ID, summary = 'Aboard the Space Anomaly', playTime = 3600, timestamp = 1790000000, units = 1000 } = {}) {
-  const chest = (n) => inventory('Chest', 5, 2, n === 1 ? [slot('Product', '^HYPERFUEL2', 30, 40, 0, 0), slot('Substance', '^FUEL1', 500, 9999, 1, 0)] : [], n === 1 ? 'Supplies' : 'BLD_STORAGE_NAME');
+  // Containers are capped by the game below their grid size (like 50 of 60 in the real game).
+  const chest = (n) => inventory('Chest', 5, 2, n === 1 ? [slot('Product', '^HYPERFUEL2', 30, 40, 0, 0), slot('Substance', '^FUEL1', 500, 9999, 1, 0)] : [], n === 1 ? 'Supplies' : 'BLD_STORAGE_NAME', 8);
   return {
     Version: 4743,
     Platform: 'Mac|Final',
@@ -72,7 +74,7 @@ export function saveTree({ id = SAVE_ID, summary = 'Aboard the Space Anomaly', p
           {
             Name: 'Test Ship',
             Resource: { Filename: 'MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN' },
-            Inventory: inventory('Ship', 5, 3, [slot('Substance', '^FUEL1', 50, 9999, 0, 0)]),
+            Inventory: inventory('Ship', 5, 3, [slot('Substance', '^FUEL1', 50, 9999, 0, 0)], '', 10),
             Inventory_Cargo: inventory('ShipCargo', 4, 2, []),
             Inventory_TechOnly: inventory('Ship', 5, 2, [slot('Technology', '^SHIPJUMP1', 100, 200, 0, 0)]),
           },

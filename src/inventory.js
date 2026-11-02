@@ -10,6 +10,8 @@ const PS = ['BaseContext', 'PlayerStateData'];
 // the general inventory and these stay empty, so items moved there could vanish
 // from view in-game. They are shown only if non-empty, and only to move items out.
 const BULK = new Set(['general', 'storage']);
+// Kinds whose whole grid can be unlocked (storage and base inventories have lower caps).
+const UNLOCKABLE = new Set(['general', 'tech']);
 
 const SHIP_TYPES = [
   [/WRACER/, 'Starborn Runner'],
@@ -267,6 +269,25 @@ export function applyOp(tree, cat, stacks, op) {
       items.sort((a, b) => by(a, b, name) || num(b.Amount) - num(a.Amount) || String(a.Id).localeCompare(String(b.Id)));
       items.forEach((s, i) => setIndex(s, cells[i][0], cells[i][1]));
       return { touched: [[...info.path, 'Slots']], warnings };
+    }
+    case 'unlockSlots': {
+      const info = cat.inventories.get(op.inv);
+      if (!info) throw new OpError(`Unknown inventory ${op.inv}`);
+      // Storage and base inventories are capped by the game below their grid size
+      // (containers stop at 50 of 60 cells), so only grids that can be fully unlocked qualify.
+      if (!UNLOCKABLE.has(info.kind)) throw new OpError(`${info.where} has a slot limit set by the game, so its slots can't be unlocked here`);
+      const inv = get(tree, info.path);
+      const w = num(inv.Width);
+      const h = num(inv.Height);
+      const have = new Set(inv.ValidSlotIndices.map((i) => cellKey(num(i.X), num(i.Y))));
+      if (have.size >= w * h) throw new OpError('All slots in this inventory are already unlocked');
+      const rowMajor = inv.ValidSlotIndices.every((p, i, l) => i === 0 || num(l[i - 1].Y) < num(p.Y) || (num(l[i - 1].Y) === num(p.Y) && num(l[i - 1].X) < num(p.X)));
+      const missing = [];
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (!have.has(cellKey(x, y))) missing.push({ X: x, Y: y });
+      // The game lists unlocked cells row by row; keep that order (append if it never was).
+      inv.ValidSlotIndices.push(...missing);
+      if (rowMajor) inv.ValidSlotIndices.sort((a, b) => num(a.Y) - num(b.Y) || num(a.X) - num(b.X));
+      return { touched: [[...info.path, 'ValidSlotIndices']], warnings: [`Unlocked ${missing.length} slot${missing.length === 1 ? '' : 's'} in ${info.where}`] };
     }
     case 'recharge': {
       const loc = locate(tree, cat, op);

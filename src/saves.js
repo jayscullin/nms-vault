@@ -386,6 +386,7 @@ function opScope(s, op) {
     case 'remove':
     case 'add':
     case 'sortInventory':
+    case 'unlockSlots':
     case 'recharge':
     case 'repair': return [inv(op.inv)];
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];

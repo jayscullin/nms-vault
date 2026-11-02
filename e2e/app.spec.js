@@ -106,6 +106,22 @@ test.describe('editing', () => {
     await expect(page.locator('.inv').nth(1).locator('.inv-tools')).toHaveCount(0);
   });
 
+  test('unlock the locked slots of a ship and write it', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await page.locator('.nav-item', { hasText: 'Test Ship' }).click();
+    const button = page.locator('.inv').nth(0).locator('[data-action="unlock-slots"]');
+    await expect(button).toHaveText('Unlock 5 slots');
+    await button.click();
+    await expect(page.locator('.inv').nth(0).locator('.cell.locked')).toHaveCount(0);
+    await expect(button).toHaveCount(0);
+    await reviewAndWrite(page);
+    expect(verifyFile('save.hg').ok).toBe(true);
+    expect(readSave('save.hg').BaseContext.PlayerStateData.ShipOwnership[0].Inventory.ValidSlotIndices).toHaveLength(15);
+    // Storage containers keep their game cap: no unlock button.
+    await page.locator('.nav-item', { hasText: 'Supplies' }).click();
+    await expect(page.locator('[data-action="unlock-slots"]')).toHaveCount(0);
+  });
+
   test('undo and discard drop staged changes', async ({ page }) => {
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();
