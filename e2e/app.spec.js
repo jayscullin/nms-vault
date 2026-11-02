@@ -154,6 +154,40 @@ test.describe('editing', () => {
     expect(ps.Chest2Inventory.Slots[0]).toMatchObject({ Id: '^HYPERFUEL2', Amount: 30, MaxAmount: 40 });
   });
 
+  test('keyboard shortcuts: arrows, F, Delete, S, U, ⌘Z, ? and ⌘S to save', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    const kb = page.keyboard;
+    await kb.press('ArrowRight'); // nothing selected yet: starts at the first cell
+    await expect(cell(page, 0, 0, 0)).toHaveClass(/selected/);
+    await kb.press('ArrowRight');
+    await kb.press('ArrowRight'); // Warp Hypercore, 5/20
+    await expect(cell(page, 0, 2, 0)).toHaveClass(/selected/);
+    await kb.press('f');
+    await expect(cell(page, 0, 2, 0).locator('.amt')).toHaveText('20/20');
+    await kb.press('ArrowLeft'); // Ferrite (LAND1)
+    await kb.press('Delete');
+    await expect(cell(page, 0, 1, 0).locator('.tile')).toHaveCount(0);
+    await kb.press('Meta+z');
+    await expect(cell(page, 0, 1, 0).locator('.tile')).toBeVisible();
+    await kb.press('s');
+    await expect(page.locator('.badge')).toHaveText('2');
+    await kb.press('?');
+    await expect(page.locator('.modal').getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
+    await kb.press('Escape');
+    await page.locator('.nav-item', { hasText: 'Test Ship' }).click();
+    await kb.press('u');
+    await expect(page.locator('.badge')).toHaveText('3');
+    // ⌘S opens the review, ⌘S again writes.
+    await kb.press('Meta+s');
+    await expect(page.locator('.modal').getByRole('heading', { name: 'Review changes' })).toBeVisible();
+    await kb.press('Meta+s');
+    await expect(page.locator('.modal').getByRole('heading', { name: 'Saved' })).toBeVisible();
+    expect(verifyFile('save.hg').ok).toBe(true);
+    const ps = readSave('save.hg').BaseContext.PlayerStateData;
+    expect(ps.Inventory.Slots.find((x) => x.Id === '^HYPERFUEL2').Amount).toBe(20);
+    expect(ps.ShipOwnership[0].Inventory.ValidSlotIndices).toHaveLength(15);
+  });
+
   test('undo and discard drop staged changes', async ({ page }) => {
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();

@@ -427,7 +427,8 @@ function renderDetails() {
   }
   if (!s) {
     return `<aside class="details"><p class="muted">Select an item to edit it, or an empty cell to add one. Drag items between cells, or onto a container in the sidebar to transfer them.</p>
-      <div class="note">Technology can be rearranged within its own grid, recharged, repaired, or removed if it isn’t core technology. It can’t be moved to another inventory.</div></aside>`;
+      <div class="note">Technology can be rearranged within its own grid, recharged, repaired, or removed if it isn’t core technology. It can’t be moved to another inventory.</div>
+      <div class="note">Press <kbd>?</kbd> for keyboard shortcuts.</div></aside>`;
   }
   const bulk = s.type !== 'Technology';
   const meta = info(s.id);
@@ -1082,13 +1083,119 @@ document.addEventListener('focusout', (e) => {
   if (value === state.view.currencies[field]) return renderTopbar();
   applyOp({ op: 'setCurrency', field, value });
 });
+// ---- keyboard shortcuts ------------------------------------------------------
+// Each shortcut does exactly what its button does: staged, undoable, same rules.
+
+const SHORTCUTS = [
+  ['← ↑ → ↓', 'Move the selection between cells'],
+  ['Delete', 'Remove the selected item'],
+  ['F', 'Fill the selected stack'],
+  ['S', 'Sort the selected (or first sortable) inventory'],
+  ['R', 'Recharge or repair the selected technology'],
+  ['U', 'Unlock the locked slots of the selected inventory'],
+  ['A / Enter', 'Add an item to the selected empty cell'],
+  ['/', 'Search'],
+  ['⌘S', 'Review changes; ⌘S again (or Enter) writes the save'],
+  ['⌘Z', 'Undo'],
+  ['Esc', 'Close a dialog or clear the selection'],
+  ['?', 'Show these shortcuts'],
+];
+
+function showShortcuts() {
+  modal(`
+    <h2>Keyboard shortcuts</h2>
+    <table class="shortcuts">${SHORTCUTS.map(([k, d]) => `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(d)}</td></tr>`).join('')}</table>
+    <footer><button class="btn" data-action="close-modal">Close</button></footer>`);
+}
+
+const typing = (el) => el.matches?.('input, textarea, select, [contenteditable="true"]');
+const isMod = (e) => e.metaKey || e.ctrlKey;
+
+// Next selectable cell (filled, or unlocked and empty) from the selection in a direction.
+function stepSelection(dx, dy) {
+  const inv = state.slot && findInv(state.slot.inv);
+  if (!inv) {
+    // Nothing selected yet: start at the first cell of the first grid on the page.
+    const first = targetInventory(() => true);
+    if (first) state.slot = { inv: first.id, x: 0, y: 0 };
+    return render();
+  }
+  let { x, y } = state.slot;
+  for (;;) {
+    x += dx;
+    y += dy;
+    if (x < 0 || y < 0 || x >= inv.width || y >= inv.height) return;
+    if (slotAt(inv, x, y) || inv.valid.includes(`${x},${y}`)) break;
+  }
+  state.slot = { inv: inv.id, x, y };
+  render();
+  document.querySelector('.cell.selected')?.scrollIntoView({ block: 'nearest' });
+}
+
+// The inventory a shortcut acts on: the selection's, else the first on the page that qualifies.
+function targetInventory(ok) {
+  const sel = state.slot && findInv(state.slot.inv);
+  if (sel && ok(sel)) return sel;
+  return [...document.querySelectorAll('[data-inv-section]')].map((el) => findInv(el.dataset.invSection)).find((i) => i && ok(i)) ?? null;
+}
+
+async function onShortcut(e) {
+  const v = state.view;
+  const inEditor = v && v.kind !== 'account' && !['knowledge', 'items'].includes(state.selected);
+  const selected = state.slot && findInv(state.slot.inv);
+  const s = selected && slotAt(selected, state.slot.x, state.slot.y);
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const take = () => e.preventDefault();
+
+  if (key === '?') return take(), showShortcuts();
+  if (key === '/') {
+    const box = $('#search');
+    if (box) take(), box.focus();
+    return;
+  }
+  if (!inEditor) return;
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (arrows[key]) return take(), stepSelection(...arrows[key]);
+  if ((key === 'Delete' || key === 'Backspace') && s) return take(), document.querySelector('[data-action="remove"]')?.click();
+  if (key === 'f' && s && s.type !== 'Technology') return take(), applyOp({ op: 'setAmount', ...state.slot, amount: s.max });
+  if (key === 'r' && s?.type === 'Technology') return take(), (document.querySelector('[data-action="recharge"]:not(:disabled)') ?? document.querySelector('[data-action="repair"]'))?.click();
+  if ((key === 'a' || key === 'Enter') && selected && !s && BULK.has(selected.kind)) return take(), openAddItem();
+  if (key === 's') {
+    const inv = targetInventory((i) => BULK.has(i.kind) && i.slots.some((x) => x.type !== 'Technology'));
+    if (inv) take(), applyOp({ op: 'sortInventory', inv: inv.id, by: state.sortBy, combine: state.sortCombine });
+    return;
+  }
+  if (key === 'u') {
+    const inv = targetInventory((i) => canUnlockSlots(i) && i.valid.length < i.width * i.height);
+    if (inv) take(), applyOp({ op: 'unlockSlots', inv: inv.id });
+  }
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset.currency) e.target.blur();
-  if (e.key === 'Escape') closeModal();
-  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && state.view?.ops && !e.target.matches('input')) {
-    e.preventDefault();
-    run(async () => { state.view = await api('/api/undo', { sessionId: state.view.sessionId }); render(); });
+  const reviewOpen = $('#modal-root [data-action="commit"]');
+  if (e.key === 'Escape') {
+    if ($('#modal-root .modal')) return closeModal();
+    if (state.slot && !typing(e.target)) {
+      state.slot = null;
+      return render();
+    }
   }
+  // ⌘S: open the review; ⌘S again (or Enter) in the review writes, if every check passed.
+  if (isMod(e) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (reviewOpen) return reviewOpen.disabled ? toast('Some checks failed, so this can’t be written', true) : reviewOpen.click();
+    if (state.view?.ops) return openReview();
+    return toast('No changes to save');
+  }
+  if (e.key === 'Enter' && reviewOpen && !reviewOpen.disabled && !typing(e.target)) return e.preventDefault(), reviewOpen.click();
+  if (isMod(e) && e.key === 'z' && state.view?.ops && !typing(e.target)) {
+    e.preventDefault();
+    return run(async () => { state.view = await api('/api/undo', { sessionId: state.view.sessionId }); render(); });
+  }
+  // Plain-key shortcuts: not while typing, not over a dialog, not with modifiers.
+  if (isMod(e) || e.altKey || typing(e.target) || $('#modal-root .modal') || $('#confirm-root .confirm')) return;
+  onShortcut(e);
 });
 
 // ---- item tooltip --------------------------------------------------------------

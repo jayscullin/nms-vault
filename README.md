@@ -42,6 +42,12 @@ First run of the browser tests: `npm install && npx playwright install chromium`
 - **Sort** general and storage inventories by type, name or amount, optionally combining partial stacks up to the game's stack limit. Technology never moves, because its position affects adjacency bonuses.
 - **Unlock slots:** unlock every locked cell in an exosuit, starship, multi-tool, freighter or exocraft grid, general or technology. Storage containers and base inventories are capped by the game below their grid size (for example 50 of 60), so they're left alone. Grids aren't enlarged.
 - Undo, discard, and a review screen before anything is written.
+- **Keyboard shortcuts** (press `?` in the app for the full list):
+  - arrows move the selection
+  - `Delete` removes, `F` fills, `S` sorts, `R` recharges or repairs, `U` unlocks slots, `A` adds
+  - `/` searches
+  - `⌘S` opens the review, and `⌘S` again writes
+  - `⌘Z` undoes
 
 ## How it stays non-destructive
 

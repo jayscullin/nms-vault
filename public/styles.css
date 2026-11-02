@@ -253,6 +253,10 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .inv-tools .combine { font-size: 12px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
 .cell.locked.unlockable { cursor: pointer; }
 .cell.locked.unlockable:hover { opacity: .9; border-color: var(--accent); }
+kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--panel-2); color: var(--text); white-space: nowrap; }
+.shortcuts { border-collapse: collapse; width: 100%; margin-top: 8px; }
+.shortcuts td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.shortcuts td:first-child { width: 110px; }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
 .modal-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
