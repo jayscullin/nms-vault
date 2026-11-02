@@ -128,16 +128,9 @@ function renderTopbar() {
        <button class="btn primary" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
     : '';
   // Global tools, on every page.
-  const inCatalogue = state.mode === 'catalogue';
   $('#global-tools').innerHTML = state.gamedata?.available
-    ? `<button class="btn small ${inCatalogue ? 'active' : ''}" data-action="catalogue" aria-pressed="${inCatalogue}" title="Browse every item in the game">${inCatalogue ? 'Close catalogue' : 'Item catalogue'}</button>`
+    ? `<button class="btn with-icon" data-action="catalogue" title="Browse every item in the game">${icon('catalogue')}Item catalogue</button>`
     : '';
-}
-
-function closeCatalogue() {
-  state.mode = null;
-  state.search = state.searchBeforeCatalogue ?? '';
-  render();
 }
 
 // ---- save picker -----------------------------------------------------------
@@ -536,8 +529,7 @@ function renderEditor() {
 
 function render() {
   renderTopbar();
-  if (state.mode === 'catalogue') renderCatalogue();
-  else if (state.view?.kind === 'account') renderRewards();
+  if (state.view?.kind === 'account') renderRewards();
   else if (state.view) renderEditor();
   else renderHome();
 }
@@ -593,35 +585,45 @@ function renderKnowledge() {
     </section>`;
 }
 
-// ---- item catalogue (no save needed) ------------------------------------------
+// ---- item catalogue (modal, works with or without a save) ------------------------
 
-state.cat = { type: '', results: null };
+state.cat = { type: '', query: '', results: null };
 
-async function loadCatalogue() {
-  state.cat.results = await api('/api/browse', { q: state.search, type: state.cat.type });
-  render();
+function openCatalogue() {
+  modal(`
+    <h2 class="with-icon">${icon('catalogue', 20)}Item catalogue</h2>
+    <p class="muted">Every named item in your installed game, read from its data files.</p>
+    <div class="reward-bar">
+      <div class="tabs" data-cat-tabs>${catalogueTabs()}</div>
+      <input type="search" id="cat-search" placeholder="Search items…" value="${esc(state.cat.query)}" aria-label="Search items" autocomplete="off">
+    </div>
+    <div id="cat-results"><p class="muted">Loading…</p></div>
+    <footer><button class="btn" data-action="close-modal">Close</button></footer>`, { wide: true });
+  $('#cat-search').focus();
+  return run(loadCatalogue);
 }
 
-function renderCatalogue() {
+const catalogueTabs = () =>
+  ['', 'Substance', 'Product', 'Technology'].map((t) => `<button class="tab small ${t === state.cat.type ? 'active' : ''}" data-cat-type="${t}">${t || 'All'}</button>`).join('');
+
+// Fetches and redraws only the results, so the search box keeps focus while typing.
+async function loadCatalogue() {
+  state.cat.results = await api('/api/browse', { q: state.cat.query, type: state.cat.type });
+  const box = $('#cat-results');
+  if (!box) return;
   const r = state.cat.results;
-  app.innerHTML = `
-    <section class="rewards">
-      <h2>Item catalogue</h2>
-      <p class="sub">Every named item in your installed game, read from its data files. No save needed.</p>
-      <div class="reward-bar">
-        <div class="tabs">${['', 'Substance', 'Product', 'Technology'].map((t) => `<button class="tab small ${t === state.cat.type ? 'active' : ''}" data-cat-type="${t}">${t || 'All'}</button>`).join('')}</div>
-        <input type="search" id="search" placeholder="Search items…" value="${esc(state.search)}" aria-label="Search items">
-      </div>
-      ${r ? `<p class="muted small">${fmt(r.total)} item${r.total === 1 ? '' : 's'}${r.total > r.items.length ? `, showing the first ${r.items.length}` : ''}</p>` : '<p class="muted">Loading…</p>'}
-      <div class="cat-list">${(r?.items ?? []).map((i) => `
-        <div class="cat-row t-${esc(i.type)}">
-          ${i.icon ? `<img class="cat-icon" src="/icons/${encodeURIComponent(i.id)}.png" alt="" loading="lazy">` : '<span class="cat-icon"></span>'}
-          <div><b>${esc(i.name)}</b> <span class="muted small">· ${esc(i.subtitle ?? i.type)}</span>
-            ${i.desc ? `<p class="desc">${esc(i.desc)}</p>` : ''}
-            <div class="cat-meta"><span class="dot"></span>${esc(i.type)} · <span class="mono">${esc(i.id)}</span>${i.stack === 0 ? ' · doesn’t stack' : i.stack ? ` · stack ×${fmt(i.stack)}` : ''}${i.core ? ' · core tech' : ''}${i.chargeable ? ' · uses charge' : ''}${i.procedural ? ' · procedural' : ''}</div>
-          </div>
-        </div>`).join('')}</div>
-    </section>`;
+  box.innerHTML = `
+    <p class="muted small">${fmt(r.total)} item${r.total === 1 ? '' : 's'}${r.total > r.items.length ? `, showing the first ${r.items.length}` : ''}</p>
+    <div class="cat-list">${r.items.map((i) => `
+      <div class="cat-row t-${esc(i.type)}">
+        ${i.icon ? `<img class="cat-icon" src="/icons/${encodeURIComponent(i.id)}.png" alt="" loading="lazy">` : '<span class="cat-icon"></span>'}
+        <div><b>${esc(i.name)}</b> <span class="muted small">· ${esc(i.subtitle ?? i.type)}</span>
+          ${i.desc ? `<p class="desc">${esc(i.desc)}</p>` : ''}
+          <div class="cat-meta"><span class="dot"></span>${esc(i.type)} · <span class="mono">${esc(i.id)}</span>${i.stack === 0 ? ' · doesn’t stack' : i.stack ? ` · stack ×${fmt(i.stack)}` : ''}${i.core ? ' · core tech' : ''}${i.chargeable ? ' · uses charge' : ''}${i.procedural ? ' · procedural' : ''}</div>
+        </div>
+      </div>`).join('')}</div>`;
+  const tabs = $('[data-cat-tabs]');
+  if (tabs) tabs.innerHTML = catalogueTabs();
 }
 
 // ---- save slot menu ------------------------------------------------------------
@@ -778,8 +780,8 @@ function ask(message, { ok = 'Continue', danger = false } = {}) {
   });
 }
 
-function modal(html) {
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
+function modal(html, { wide = false } = {}) {
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`;
 }
 const closeModal = () => ($('#modal-root').innerHTML = '');
 
@@ -943,7 +945,6 @@ document.addEventListener('click', async (e) => {
     case 'home':
       if (state.view?.ops && !(await ask('Discard unsaved changes?', { ok: 'Discard', danger: true }))) return;
       state.view = null;
-      state.mode = null;
       state.search = '';
       return loadAccounts();
     case 'verify':
@@ -1005,13 +1006,8 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: 'sortInventory', inv: d.inv, by: state.sortBy, combine: state.sortCombine });
     }
     case 'catalogue':
-      // Opens over whatever is showing; a save stays open with its staged changes.
-      if (state.mode === 'catalogue') return closeCatalogue();
-      state.mode = 'catalogue';
-      state.searchBeforeCatalogue = state.search;
-      state.search = '';
-      render();
-      return run(loadCatalogue);
+      // A modal over whatever is showing; a save stays open with its staged changes.
+      return openCatalogue();
     case 'slot-menu':
       return run(() => openSlotMenu(d.account, d.file));
     case 'slot-op':
@@ -1067,16 +1063,18 @@ document.addEventListener('input', (e) => {
     box?.focus();
     box?.setSelectionRange(pos, pos);
   };
-  if (state.mode === 'catalogue') {
-    // The catalogue searches on the server; wait for typing to pause.
-    clearTimeout(catalogueTimer);
-    catalogueTimer = setTimeout(() => run(loadCatalogue).then(refocus), 200);
-    return;
-  }
   render();
   refocus();
 });
+
+// The catalogue searches on the server; wait for typing to pause.
 let catalogueTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'cat-search') return;
+  state.cat.query = e.target.value;
+  clearTimeout(catalogueTimer);
+  catalogueTimer = setTimeout(() => run(loadCatalogue), 200);
+});
 
 document.addEventListener('focusin', (e) => {
   if (e.target.dataset.currency) e.target.value = e.target.value.replace(/[^\d]/g, '');
@@ -1148,7 +1146,7 @@ function targetInventory(ok) {
 
 async function onShortcut(e) {
   const v = state.view;
-  const inEditor = v && v.kind !== 'account' && state.mode !== 'catalogue' && !['knowledge', 'items'].includes(state.selected);
+  const inEditor = v && v.kind !== 'account' && !['knowledge', 'items'].includes(state.selected);
   const selected = state.slot && findInv(state.slot.inv);
   const s = selected && slotAt(selected, state.slot.x, state.slot.y);
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -1183,7 +1181,6 @@ document.addEventListener('keydown', (e) => {
   const reviewOpen = $('#modal-root [data-action="commit"]');
   if (e.key === 'Escape') {
     if ($('#modal-root .modal')) return closeModal();
-    if (state.mode === 'catalogue') return closeCatalogue();
     if (state.slot && !typing(e.target)) {
       state.slot = null;
       return render();

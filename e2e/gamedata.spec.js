@@ -79,22 +79,27 @@ test('unlock a title in the account file', async ({ page }) => {
   expect(verifyFile('accountdata.hg').ok).toBe(true);
 });
 
-test('the item catalogue works without a save, from the top bar', async ({ page }) => {
+test('the item catalogue opens in a modal without a save, from the top bar', async ({ page }) => {
   await home(page);
   await page.locator('.topbar [data-action="catalogue"]').click();
-  await page.locator('#search').fill('pulse engine');
-  await expect(page.locator('.cat-row').first()).toContainText('Pulse Engine');
+  const dialog = page.locator('.modal.wide');
+  await expect(dialog.getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
+  await page.locator('#cat-search').fill('pulse engine');
+  await expect(dialog.locator('.cat-row').first()).toContainText('Pulse Engine');
+  await expect(page.locator('#cat-search')).toBeFocused();
+  await dialog.locator('[data-cat-type="Technology"]').click();
+  await expect(dialog.locator('.cat-meta').first()).toContainText('Technology');
 });
 
-test('the catalogue opens over an open save and closing it keeps staged changes', async ({ page }) => {
+test('the catalogue modal opens over an open save and closing it keeps staged changes', async ({ page }) => {
   await openSave(page, 'save.hg');
   await cell(page, 0, 0, 0).locator('.tile').click();
   await page.keyboard.press('f');
   await expect(page.locator('.badge')).toHaveText('1');
   await page.locator('.topbar [data-action="catalogue"]').click();
-  await expect(page.getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
-  await expect(page.locator('.topbar [data-action="catalogue"]')).toHaveText('Close catalogue');
+  await expect(page.locator('.modal.wide').getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
   await page.keyboard.press('Escape');
+  await expect(page.locator('.modal')).toHaveCount(0);
   await expect(page.locator('.content h2')).toContainText('Exosuit');
   await expect(page.locator('.badge')).toHaveText('1');
 });
