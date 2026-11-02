@@ -881,7 +881,7 @@ async function openModel(id) {
     <footer><button class="btn" data-action="close-modal">Close</button></footer>`, { wide: true });
   const stage = $('#modal-root .model-stage');
   try {
-    const release = await showModel(stage.querySelector('canvas'), c.model.scene);
+    const release = await showModel(stage.querySelector('canvas'), c.model.scene, c.model.parts);
     if (!stage.isConnected) return release(); // closed while loading
     releaseModal = release;
     stage.querySelector('.model-status').remove();

@@ -43,8 +43,8 @@ function multiply(a, b) {
 }
 
 // Loads a model into the canvas. Returns a function that releases the GL context.
-export async function showModel(canvas, scene) {
-  const res = await fetch(`/models/${encodeURIComponent(scene)}.bin`);
+export async function showModel(canvas, scene, parts = []) {
+  const res = await fetch(`/models/${encodeURIComponent(scene)}.bin${parts.length ? `?parts=${parts.map(encodeURIComponent).join(',')}` : ''}`);
   if (!res.ok) throw new Error(res.status === 422 ? await res.text() : 'Could not load the model');
   const model = unpack(await res.arrayBuffer());
 

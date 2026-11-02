@@ -113,7 +113,8 @@ const server = http.createServer(async (req, res) => {
   const model = /^\/models\/(.+)\.bin$/.exec(url.pathname);
   if (model) {
     try {
-      const bin = gamedata.modelBinary(decodeURIComponent(model[1]));
+      const parts = (url.searchParams.get('parts') ?? '').split(',').filter(Boolean);
+      const bin = gamedata.modelBinary(decodeURIComponent(model[1]), parts);
       res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
       return res.end(bin);
     } catch (e) {

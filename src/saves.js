@@ -357,7 +357,7 @@ export function sessionView(s) {
     summary: toDisplay(get(s.origTree, ['BaseContext', 'PlayerStateData', 'SaveSummary']) ?? ''),
     items,
     ...v,
-    containers: v.containers.map((c) => (c.model ? { ...c, model: { scene: c.model, ...modelStatus(c.model) } } : c)),
+    containers: v.containers.map((c) => (c.model ? { ...c, model: { ...c.model, ...modelStatus(c.model.scene, c.model.parts) } } : c)),
   };
 }
 

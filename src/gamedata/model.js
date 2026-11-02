@@ -1,8 +1,9 @@
 // 3D models from the game's own files: scene graph (*.scene.mbin), mesh data
 // (*.geometry.data.mbin.<platform>) and each material's diffuse texture.
-// Read-only; only fixed (non-procedural) models are decoded, because a
-// procedural model's parts are picked by the game from a seed and showing a
-// guessed combination would misrepresent the player's ship.
+// Read-only. A procedural model's parts are normally picked by the game from a
+// seed, which can't be reproduced here, so procedural models are only decoded
+// when the save records their parts (customised ships); otherwise they are
+// refused rather than shown as a guessed combination.
 
 const LIST = 0xaaaaaa01;
 const NODE_SIZE = 128;
@@ -41,19 +42,22 @@ export function readScene(b) {
   return node(0x20);
 }
 
-// Mesh entries by hash: offsets of the full stream (vertices then indices) and the
-// position/UV vertex stream, with their byte sizes.
+// Mesh entries by hash. Each has two streams: one holding the other vertex
+// attributes followed by the indices, and the position/UV vertex stream.
 export function readMeshData(b) {
   const list = (p) => ({ at: p + Number(b.readBigUInt64LE(p)), n: b.readUInt32LE(p + 8) });
   const top = list(0x20);
   const out = new Map();
   for (let i = 0; i < top.n; i++) {
     const e = top.at + i * MESH_ENTRY;
+    const rest = list(e + 0x10);
+    const vertices = list(e + 0x20);
+    const indexBytes = b.readUInt32LE(e + 0x38);
     out.set(b.readBigUInt64LE(e + 0x30).toString(), {
-      full: list(e + 0x10).at,
-      vertices: list(e + 0x20).at,
-      indexBytes: b.readUInt32LE(e + 0x38),
-      vertexBytes: b.readUInt32LE(e + 0x3c),
+      indices: rest.at + rest.n - indexBytes,
+      vertices: vertices.at,
+      indexBytes,
+      vertexBytes: vertices.n,
     });
   }
   return out;
@@ -96,51 +100,134 @@ export function samplerTexture(material, sampler = 'gDiffuseMap') {
 
 export class ModelError extends Error {}
 
-// Decodes the most detailed LOD of a fixed model. Returns per-mesh positions,
-// UVs and indices in model space, plus the diffuse texture path per material.
-export function loadModel(archives, scenePath) {
+// Customisation groups (charactercustomisationdescriptorgroupsdata.mbin): a group
+// id such as "FIGHT_WINGBA" names the descriptor ids it switches on. Each record
+// is a list of 0x20-byte ids followed by the group id as a 0x20-byte string.
+export function readCustomisationGroups(b) {
+  const fstr = (p) => {
+    const s = b.toString('latin1', p, p + 0x20);
+    const z = s.indexOf('\0');
+    return z < 0 ? null : s.slice(0, z);
+  };
+  const groups = new Map();
+  for (let p = 0; p + 0x30 <= b.length; p += 4) {
+    if (b.readUInt32LE(p + 12) !== LIST) continue;
+    const id = fstr(p + 16);
+    if (!id || !/^[A-Z][A-Z0-9_]+$/.test(id)) continue;
+    const n = b.readUInt32LE(p + 8);
+    const at = p + Number(b.readBigUInt64LE(p));
+    if (!n || n > 64 || at < 0 || at + n * 0x20 > b.length) continue;
+    const ids = Array.from({ length: n }, (_, i) => fstr(at + i * 0x20));
+    if (ids.every((d) => d && /^_[A-Z0-9_]+$/i.test(d))) groups.set(id, ids.map((d) => d.toUpperCase()));
+  }
+  return groups;
+}
+
+// Descriptor ids (the part names a procedural scene can switch between) and
+// their type prefixes, e.g. "_WINGS_B" of type "_WINGS_".
+export function readDescriptor(buf) {
+  const strings = buf.toString('latin1').match(/_[A-Z0-9_]+(?=\0)/g) ?? [];
+  const types = new Set(strings.filter((x) => x.endsWith('_')));
+  const ids = new Set(strings.filter((x) => !x.endsWith('_') && [...types].some((t) => x.startsWith(t))));
+  return { ids, types };
+}
+
+// Decodes the most detailed LOD of a model. Returns per-mesh positions, UVs and
+// indices in model space, plus the diffuse texture path per material.
+// A procedural model needs `parts`: the descriptor ids the game itself recorded
+// for this object (customised ships). Without them it is refused, and so is any
+// choice in the model that the recorded parts don't settle.
+export function loadModel(archives, scenePath, { parts } = {}) {
   const scene = norm(scenePath);
   if (!/^models\/[a-z0-9_\-/]+\.scene\.mbin$/.test(scene)) throw new ModelError('Not a model path');
   if (!archives.find(scene)) throw new ModelError('Model not found in game data');
-  if (archives.find(scene.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
+  const chosen = new Set((parts ?? []).map((x) => String(x).toUpperCase()));
+  if (!chosen.size && archives.find(scene.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
     throw new ModelError('Procedurally generated model');
   }
-  const root = readScene(archives.read(scene));
-  const geometry = norm(root.attrs.GEOMETRY ?? '');
-  const dataName = archives.paks.flatMap((p) => [...p.files.keys()]).find((n) => n.startsWith(geometry.replace(/\.mbin$/, '.data.mbin')));
-  if (!geometry || !dataName) throw new ModelError('Model geometry not found');
-  const data = archives.read(dataName);
-  const entries = readMeshData(data);
+  const allNames = archives.paks.flatMap((p) => [...p.files.keys()]);
+
+  const scenes = new Map();
+  const loadScene = (name) => {
+    if (scenes.has(name)) return scenes.get(name);
+    if (!archives.find(name)) throw new ModelError(`Part not found in game data: ${name}`);
+    const root = readScene(archives.read(name));
+    const descName = name.replace(/\.scene\.mbin$/, '.descriptor.mbin');
+    const descriptor = archives.find(descName) ? readDescriptor(archives.read(descName)) : null;
+    let geometry = null;
+    const geo = norm(root.attrs.GEOMETRY ?? '');
+    const dataName = geo && allNames.find((n) => n.startsWith(geo.replace(/\.mbin$/, '.data.mbin')));
+    if (dataName) {
+      const data = archives.read(dataName);
+      geometry = { data, entries: readMeshData(data) };
+    }
+    const s = { root, descriptor, geometry };
+    scenes.set(name, s);
+    return s;
+  };
 
   const meshes = [];
   const materials = {};
-  const walk = (n, parent) => {
-    const m = mul(parent, nodeMatrix(n.t));
-    if (n.type === 'MESH' && n.attrs.LODLEVEL === '0') meshes.push(decodeMesh(n, m));
-    for (const c of n.children) walk(c, m);
+  const used = new Set();
+
+  const walkScene = (name, parent, ctx, depth) => {
+    if (depth > 8) throw new ModelError('Model references nest too deeply');
+    const s = loadScene(name);
+    if (s.descriptor && !chosen.size) throw new ModelError('Procedurally generated model');
+    const here = s.descriptor
+      ? { ids: new Set([...ctx.ids, ...s.descriptor.ids]), types: new Set([...ctx.types, ...s.descriptor.types]) }
+      : ctx;
+    walk(s.root, parent, here, s, depth);
   };
 
-  const decodeMesh = (n, m) => {
-    const e = entries.get(n.attrs.HASH);
+  const walk = (n, parent, ctx, s, depth) => {
+    const m = mul(parent, nodeMatrix(n.t));
+    if (n.type === 'MESH' && n.attrs.LODLEVEL === '0') meshes.push(decodeMesh(n, m, s));
+    if (n.type === 'REFERENCE' && n.attrs.SCENEGRAPH && !/FLAME|FLARE/i.test(n.attrs.SCENEGRAPH)) {
+      walkScene(norm(n.attrs.SCENEGRAPH), m, ctx, depth + 1);
+    }
+    // Children that are descriptor options: keep the chosen ones. Every option
+    // type present must be settled by a recorded part, or the model is refused.
+    const types = new Set();
+    for (const c of n.children) {
+      const id = c.name.split('\\').pop().toUpperCase();
+      if (ctx.ids.has(id)) {
+        types.add([...ctx.types].filter((t) => id.startsWith(t)).sort((a, b) => b.length - a.length)[0]);
+        if (!chosen.has(id)) continue;
+        used.add(id);
+      }
+      walk(c, m, ctx, s, depth);
+    }
+    for (const t of types) {
+      if (![...chosen].some((id) => id.startsWith(t))) throw new ModelError(`The save doesn't record which ${t.replaceAll('_', ' ').trim().toLowerCase()} part this has`);
+    }
+  };
+
+  const decodeMesh = (n, m, s) => {
+    const data = s.geometry?.data;
+    const e = s.geometry?.entries.get(n.attrs.HASH);
     if (!e) throw new ModelError(`No geometry for ${n.name}`);
     const nV = e.vertexBytes / VERTEX_STRIDE;
     const batch = Number(n.attrs.BATCHCOUNT);
     const indexSize = e.indexBytes / batch;
-    if (!Number.isInteger(nV) || (indexSize !== 2 && indexSize !== 4)) throw new ModelError(`Unexpected mesh layout in ${n.name}`);
+    const range = Number(n.attrs.VERTRENDGRAPHIC) - Number(n.attrs.VERTRSTARTGRAPH) + 1;
+    if (nV !== range || (indexSize !== 2 && indexSize !== 4)) throw new ModelError(`Unexpected mesh layout in ${n.name}`);
+    const local = new Float32Array(nV * 3);
     const positions = new Float32Array(nV * 3);
     const uvs = new Float32Array(nV * 2);
     for (let i = 0; i < nV; i++) {
       const v = e.vertices + i * VERTEX_STRIDE;
       const [x, y, z] = [0, 2, 4].map((o) => half(data.readUInt16LE(v + o)));
+      local.set([x, y, z], i * 3);
       positions[i * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
       positions[i * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
       positions[i * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
       uvs[i * 2] = half(data.readUInt16LE(v + 8));
       uvs[i * 2 + 1] = half(data.readUInt16LE(v + 10));
     }
-    checkBounds(n, positions, m);
+    checkBounds(n, local);
     const indices = new Uint32Array(batch);
-    const at = e.full + e.vertexBytes;
+    const at = e.indices;
     for (let i = 0; i < batch; i++) {
       indices[i] = indexSize === 2 ? data.readUInt16LE(at + i * 2) : data.readUInt32LE(at + i * 4);
       if (indices[i] >= nV) throw new ModelError(`Index out of range in ${n.name}`);
@@ -152,17 +239,20 @@ export function loadModel(archives, scenePath) {
     return { name: n.name, material, positions, uvs, indices };
   };
 
-  walk(root, IDENTITY);
+  walkScene(scene, IDENTITY, { ids: new Set(), types: new Set() }, 0);
   if (!meshes.length) throw new ModelError('Model has no meshes');
+  // Every recorded part must have been found, or the parts belong to some other model.
+  const unused = [...chosen].filter((id) => !used.has(id) && !/_NONE|_NULL/.test(id));
+  if (unused.length) throw new ModelError(`Recorded parts not found in this model: ${unused.join(', ')}`);
   const textures = Object.fromEntries(Object.entries(materials).map(([k, v]) => [k, v && norm(v)]));
-  return { name: root.name, meshes, textures };
+  return { name: scenes.get(scene).root.name, meshes, textures };
 }
 
 // Positions must sit inside the mesh's own bounding box (with a little room for
 // half-float rounding), or the vertex layout is not the one this decoder knows.
-function checkBounds(n, positions, m) {
+function checkBounds(n, positions) {
   const keys = ['AABBMINX', 'AABBMINY', 'AABBMINZ', 'AABBMAXX', 'AABBMAXY', 'AABBMAXZ'];
-  if (!keys.every((k) => k in n.attrs) || m.some((v, i) => v !== IDENTITY[i])) return;
+  if (!keys.every((k) => k in n.attrs)) return;
   const [x0, y0, z0, x1, y1, z1] = keys.map((k) => Number(n.attrs[k]));
   const slack = 0.02 * Math.max(x1 - x0, y1 - y0, z1 - z0, 1);
   const lo = [x0, y0, z0];

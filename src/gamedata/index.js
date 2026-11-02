@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { loadItemDb, resolveItem } from './itemdb.js';
 import { decodeDds, encodePng } from './dds.js';
 import { ruleLimit } from './stacks.js';
-import { loadModel, packModel, ModelError } from './model.js';
+import { loadModel, packModel, readCustomisationGroups, ModelError } from './model.js';
 
 let db = null;
 let iconDir = null;
@@ -144,14 +144,39 @@ export function iconPng(key) {
   return png;
 }
 
+let groups = null;
+const GROUPS_FILE = 'metadata/gamestate/playerdata/charactercustomisationdescriptorgroupsdata.mbin';
+
+// Descriptor ids for recorded customisation groups, or null if any group is unknown.
+function partsFor(groupIds) {
+  if (!groups) groups = db.archives.find(GROUPS_FILE) ? readCustomisationGroups(db.archives.read(GROUPS_FILE)) : new Map();
+  const parts = [];
+  for (const g of groupIds) {
+    if (!groups.has(g)) return null;
+    parts.push(...groups.get(g));
+  }
+  return parts;
+}
+
+const sceneName = (scene) => String(scene ?? '').replaceAll('\\', '/').toLowerCase();
+
 // Whether a model can be shown in 3D, without decoding it. Procedural models
-// (ones with a descriptor) are refused: the game picks their parts from a seed.
-export function modelStatus(scene) {
+// (ones with a descriptor) need their parts recorded in the save; the game
+// otherwise picks them from a seed, which can't be reproduced here.
+export function modelStatus(scene, groupIds = []) {
   if (!db?.available) return { available: false, reason: 'Game data unavailable' };
-  const name = String(scene ?? '').replaceAll('\\', '/').toLowerCase();
+  const name = sceneName(scene);
   if (!name || !db.archives.find(name)) return { available: false, reason: 'Model not found in game data' };
   if (db.archives.find(name.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
-    return { available: false, reason: 'Procedurally generated models can’t be previewed yet' };
+    if (!groupIds.length) return { available: false, reason: 'Procedurally generated: its parts come from a seed the game doesn’t write to the save. Customised ships can be shown.' };
+    if (!partsFor(groupIds)) return { available: false, reason: 'Its recorded parts aren’t in this game version’s data' };
+    // Recorded parts may still leave a choice open; decode now (cached) so the button tells the truth.
+    try {
+      modelBinary(scene, groupIds);
+    } catch (e) {
+      if (!(e instanceof ModelError)) throw e;
+      return { available: false, reason: e.message };
+    }
   }
   return { available: true };
 }
@@ -160,15 +185,17 @@ const models = new Map();
 // Textures referenced by a model served so far; only these can be fetched.
 const modelTextures = new Set();
 
-// Packed model bytes for a scene path, or throws ModelError.
-export function modelBinary(scene) {
+// Packed model bytes for a scene path and its recorded customisation groups, or throws ModelError.
+export function modelBinary(scene, groupIds = []) {
   if (!db?.available) throw new ModelError('Game data unavailable');
-  const key = String(scene).replaceAll('\\', '/').toLowerCase();
+  const key = `${sceneName(scene)}|${groupIds.join(',')}`;
   if (models.has(key)) return models.get(key);
-  const model = loadModel(db.archives, key);
+  const parts = groupIds.length ? partsFor(groupIds) : undefined;
+  if (groupIds.length && !parts) throw new ModelError('Unknown customisation part');
+  const model = loadModel(db.archives, sceneName(scene), { parts });
   for (const t of Object.values(model.textures)) if (t) modelTextures.add(t);
   const bin = packModel(model);
-  if (models.size > 8) models.clear();
+  if (models.size > 8) models.delete(models.keys().next().value);
   models.set(key, bin);
   return bin;
 }

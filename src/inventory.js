@@ -55,6 +55,17 @@ function displayName(raw) {
   return /^[A-Z0-9]+(_[A-Z0-9]+)+$/.test(name) ? '' : name;
 }
 
+// CharacterCustomisationData entry for a ship slot: slots 0-5 use entries 3-8 and
+// slots 6-11 use 17-22 (inferred from saves; a wrong match is caught when the
+// recorded parts don't fit the ship's model).
+const shipCustomisationIndex = (slot) => (slot < 6 ? 3 + slot : 17 + slot - 6);
+
+// Customisation groups the game recorded for an object (set at the appearance modifier).
+function customParts(ps, index) {
+  const groups = ps.CharacterCustomisationData?.[index]?.CustomData?.DescriptorGroups ?? [];
+  return groups.map((g) => toDisplay(g).replace(/^\^/, '')).filter(Boolean);
+}
+
 // Containers group inventories by what owns them (a ship, a chest, the exosuit).
 export function catalog(tree) {
   const ps = get(tree, PS);
@@ -83,7 +94,7 @@ export function catalog(tree) {
     const c = container('Starships', displayName(s.Name) || `${shipType(file)} ${i + 1}`, {
       namePath: [...base, 'Name'],
       current: num(ps.PrimaryShip) === i,
-      model: toDisplay(file),
+      model: { scene: toDisplay(file), parts: customParts(ps, shipCustomisationIndex(i)) },
     });
     c.subtitle = shipType(file);
     inv(c, 'General', [...base, 'Inventory'], 'general');
@@ -96,12 +107,12 @@ export function catalog(tree) {
     const c = container('Multi-Tools', displayName(m.Name) || `Multi-Tool ${i + 1}`, {
       namePath: [...PS, 'Multitools', i, 'Name'],
       current: num(ps.ActiveMultioolIndex) === i,
-      model: toDisplay(m.Resource.Filename),
+      model: { scene: toDisplay(m.Resource.Filename), parts: [] },
     });
     inv(c, 'Technology', [...PS, 'Multitools', i, 'Store'], 'tech');
   });
 
-  const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? toDisplay(ps.CurrentFreighter.Filename) : undefined });
+  const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? { scene: toDisplay(ps.CurrentFreighter.Filename), parts: [] } : undefined });
   inv(fr, 'General', [...PS, 'FreighterInventory'], 'general');
   inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'legacy');
   inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech');

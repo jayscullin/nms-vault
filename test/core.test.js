@@ -11,7 +11,7 @@ import { subsetOf, anchorsOf, encodePng, decodeDds } from '../src/gamedata/dds.j
 import { resolveItem } from '../src/gamedata/itemdb.js';
 import { readStackBases, ruleLimit } from '../src/gamedata/stacks.js';
 import { applyRewardOp } from '../src/rewards.js';
-import { samplerTexture, packModel, loadModel } from '../src/gamedata/model.js';
+import { samplerTexture, packModel, loadModel, readCustomisationGroups } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
@@ -170,4 +170,19 @@ test('model loading refuses odd paths and procedural models', () => {
   assert.throws(() => loadModel(archives, '../etc/passwd'), /Not a model path/);
   assert.throws(() => loadModel(archives, 'MODELS/A/MISSING.SCENE.MBIN'), /not found/);
   assert.throws(() => loadModel(archives, 'MODELS\\A\\SHIP.SCENE.MBIN'), /Procedurally generated/);
+});
+
+test('customisation groups map a group id to the descriptor ids it switches on', () => {
+  const b = Buffer.alloc(0x100);
+  const str = (at, v) => b.write(v, at, 'latin1');
+  // record at 0x20: list header -> 2 ids at 0x80, then the group id
+  b.writeBigUInt64LE(0x60n, 0x20);
+  b.writeUInt32LE(2, 0x28);
+  b.writeUInt32LE(0xaaaaaa01, 0x2c);
+  str(0x30, 'FIGHT_WINGBA');
+  str(0x80, '_SUBWINGS_A');
+  str(0xa0, '_Wings_B');
+  const groups = readCustomisationGroups(b);
+  assert.deepEqual(groups.get('FIGHT_WINGBA'), ['_SUBWINGS_A', '_WINGS_B']);
+  assert.equal(groups.size, 1);
 });
