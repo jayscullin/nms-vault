@@ -881,10 +881,13 @@ async function openModel(id) {
     <footer><button class="btn" data-action="close-modal">Close</button></footer>`, { wide: true });
   const stage = $('#modal-root .model-stage');
   try {
-    const release = await showModel(stage.querySelector('canvas'), c.model.scene, c.model.parts);
+    const { release, omitted } = await showModel(stage.querySelector('canvas'), c.model.scene, c.model.parts);
     if (!stage.isConnected) return release(); // closed while loading
     releaseModal = release;
     stage.querySelector('.model-status').remove();
+    if (omitted.includes('decals')) {
+      stage.insertAdjacentHTML('afterend', '<p class="muted small">Decals such as hull lettering and signs are left out: the game picks them from a seed it doesn’t write to the save.</p>');
+    }
   } catch (e) {
     if (stage.isConnected) stage.querySelector('.model-status').textContent = e.message;
   }

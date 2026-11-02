@@ -100,6 +100,9 @@ export function samplerTexture(material, sampler = 'gDiffuseMap') {
 
 export class ModelError extends Error {}
 
+// A node whose whole subtree is decal meshes (lettering, signs, logos).
+const decalOnly = (n) => n.type === 'MESH' && /DECAL/i.test(n.attrs.MATERIAL ?? '') && n.children.every(decalOnly);
+
 // Customisation groups (charactercustomisationdescriptorgroupsdata.mbin): a group
 // id such as "FIGHT_WINGBA" names the descriptor ids it switches on. Each record
 // is a list of 0x20-byte ids followed by the group id as a 0x20-byte string.
@@ -169,6 +172,7 @@ export function loadModel(archives, scenePath, { parts } = {}) {
   const meshes = [];
   const materials = {};
   const used = new Set();
+  const omitted = new Set();
 
   const walkScene = (name, parent, ctx, depth) => {
     if (depth > 8) throw new ModelError('Model references nest too deeply');
@@ -187,19 +191,24 @@ export function loadModel(archives, scenePath, { parts } = {}) {
       walkScene(norm(n.attrs.SCENEGRAPH), m, ctx, depth + 1);
     }
     // Children that are descriptor options: keep the chosen ones. Every option
-    // type present must be settled by a recorded part, or the model is refused.
-    const types = new Set();
+    // type present must be settled by a recorded part, or the model is refused,
+    // except decal-only options (seed-picked lettering and signs, never part of
+    // customisation), which are left out and reported.
+    const options = new Map();
     for (const c of n.children) {
       const id = c.name.split('\\').pop().toUpperCase();
       if (ctx.ids.has(id)) {
-        types.add([...ctx.types].filter((t) => id.startsWith(t)).sort((a, b) => b.length - a.length)[0]);
+        const type = [...ctx.types].filter((t) => id.startsWith(t)).sort((a, b) => b.length - a.length)[0];
+        options.set(type, [...(options.get(type) ?? []), c]);
         if (!chosen.has(id)) continue;
         used.add(id);
       }
       walk(c, m, ctx, s, depth);
     }
-    for (const t of types) {
-      if (![...chosen].some((id) => id.startsWith(t))) throw new ModelError(`The save doesn't record which ${t.replaceAll('_', ' ').trim().toLowerCase()} part this has`);
+    for (const [t, nodes] of options) {
+      if ([...chosen].some((id) => id.startsWith(t))) continue;
+      if (!nodes.every(decalOnly)) throw new ModelError(`The save doesn't record which ${t.replaceAll('_', ' ').trim().toLowerCase()} part this has`);
+      omitted.add(t);
     }
   };
 
@@ -245,7 +254,7 @@ export function loadModel(archives, scenePath, { parts } = {}) {
   const unused = [...chosen].filter((id) => !used.has(id) && !/_NONE|_NULL/.test(id));
   if (unused.length) throw new ModelError(`Recorded parts not found in this model: ${unused.join(', ')}`);
   const textures = Object.fromEntries(Object.entries(materials).map(([k, v]) => [k, v && norm(v)]));
-  return { name: scenes.get(scene).root.name, meshes, textures };
+  return { name: scenes.get(scene).root.name, meshes, textures, omitted: omitted.size ? ['decals'] : [] };
 }
 
 // Positions must sit inside the mesh's own bounding box (with a little room for
@@ -282,7 +291,7 @@ export function packModel(model) {
     uvs: add(m.uvs),
     indices: add(m.indices),
   }));
-  let header = Buffer.from(JSON.stringify({ name: model.name, meshes, textures: model.textures }), 'utf8');
+  let header = Buffer.from(JSON.stringify({ name: model.name, meshes, textures: model.textures, omitted: model.omitted ?? [] }), 'utf8');
   header = Buffer.concat([header, Buffer.alloc((4 - (header.length % 4)) % 4, 0x20)]);
   const len = Buffer.alloc(4);
   len.writeUInt32LE(header.length);

@@ -42,7 +42,8 @@ function multiply(a, b) {
   return r;
 }
 
-// Loads a model into the canvas. Returns a function that releases the GL context.
+// Loads a model into the canvas. Returns { release, omitted }: release frees the GL
+// context; omitted lists details left out because the save doesn't record them.
 export async function showModel(canvas, scene, parts = []) {
   const res = await fetch(`/models/${encodeURIComponent(scene)}.bin${parts.length ? `?parts=${parts.map(encodeURIComponent).join(',')}` : ''}`);
   if (!res.ok) throw new Error(res.status === 422 ? await res.text() : 'Could not load the model');
@@ -174,9 +175,10 @@ export async function showModel(canvas, scene, parts = []) {
   resize.observe(canvas);
   draw();
 
-  return () => {
+  const release = () => {
     resize.disconnect();
     cancelAnimationFrame(frame);
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   };
+  return { release, omitted: model.omitted ?? [] };
 }

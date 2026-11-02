@@ -150,3 +150,16 @@ test('3D view: procedural ships are refused with a reason, fixed models load', a
   const procedural = await page.request.get('/models/' + encodeURIComponent('MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN') + '.bin');
   expect(procedural.status()).toBe(422);
 });
+
+test('3D view: recorded parts build a customised ship; unrecorded decals are left out, unrecorded parts refused', async ({ page }) => {
+  await page.goto('/');
+  const get = (scene, parts) => page.request.get('/models/' + encodeURIComponent(scene) + '.bin?parts=' + parts.join(','));
+  const hauler = await get('MODELS/COMMON/SPACECRAFT/DROPSHIPS/DROPSHIP_PROC.SCENE.MBIN', ['DROPS_COCKS13', 'DROPS_ENGIS13', 'DROPS_WINGS13']);
+  expect(hauler.status()).toBe(200);
+  const body = await hauler.body();
+  const header = JSON.parse(body.toString('utf8', 4, 4 + body.readUInt32LE(0)));
+  expect(header.omitted).toEqual(['decals']);
+  const noWings = await get('MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN', ['FIGHT_COCKD', 'FIGHT_ENGIC']);
+  expect(noWings.status()).toBe(422);
+  expect(await noWings.text()).toMatch(/wings/);
+});
