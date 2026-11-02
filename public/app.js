@@ -299,7 +299,7 @@ function renderGrid(inv) {
         <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
           ${
             s
-              ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
+              ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}${s.type === 'Technology' && s.damage > 0 ? ' damaged' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
                   ${icon ? `<img src="${icon}" alt="" loading="lazy" draggable="false">` : `<span class="mono-tag">${esc(monogram(s.id))}</span><span class="name">${esc(itemName(s.id))}</span>`}
                   ${s.type === 'Technology' ? '' : `<span><span class="amt">${fmt(s.amount)}/${fmt(s.max)}</span><span class="bar"><i style="width:${Math.min(100, (s.amount / Math.max(1, s.max)) * 100)}%"></i></span></span>`}
                 </button>`
