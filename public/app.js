@@ -2,6 +2,7 @@
 // the page only renders the server's view of the working copy.
 
 import { icon, GROUP_ICONS } from './icons.js';
+import { showModel } from './viewer.js';
 
 const groupIcon = (group, size = 14) => (GROUP_ICONS[group] ? icon(GROUP_ICONS[group], size) : '');
 
@@ -291,6 +292,14 @@ function renderGrid(inv) {
   return `<div class="grid" style="--cols: ${inv.width}">${cells.join('')}</div>`;
 }
 
+// 3D preview of a ship, multi-tool or freighter. Shown disabled, with the reason, when the model can't be previewed.
+const modelButton = (c) =>
+  c.model
+    ? c.model.available
+      ? `<button class="btn small with-icon" data-action="model" data-container="${esc(c.id)}" title="View this model in 3D">${icon('model', 14)}3D</button>`
+      : `<button class="btn small with-icon" disabled title="${esc(c.model.reason)}" aria-label="3D view unavailable: ${esc(c.model.reason)}">${icon('model', 14)}3D</button>`
+    : '';
+
 const renameButton = (c) => (c.nameKey ? `<button class="btn small" data-action="rename" data-name-key="${esc(c.nameKey)}" data-name="${esc(c.name ?? '')}">Rename</button>` : '');
 
 function renderInventories(c) {
@@ -307,7 +316,7 @@ function renderInventories(c) {
 
 function renderContainer(c) {
   return `
-    <h2>${esc(c.title)} ${renameButton(c)}</h2>
+    <h2>${esc(c.title)} ${renameButton(c)} ${modelButton(c)}</h2>
     <p class="sub">${esc(c.group)}${c.subtitle ? ` · ${esc(c.subtitle)}` : ''}${c.current ? ' · in use' : ''}</p>
     ${renderInventories(c)}`;
 }
@@ -323,7 +332,7 @@ function renderGroup(group) {
       .map(
         (c) => `
       <section class="group-member">
-        <h2 class="member-title">${esc(c.title)} ${c.current ? '<span class="current" title="Currently in use">●</span>' : ''}<span class="muted small">${esc(c.subtitle && c.subtitle !== c.title ? c.subtitle : '')}</span> ${renameButton(c)}
+        <h2 class="member-title">${esc(c.title)} ${c.current ? '<span class="current" title="Currently in use">●</span>' : ''}<span class="muted small">${esc(c.subtitle && c.subtitle !== c.title ? c.subtitle : '')}</span> ${renameButton(c)} ${modelButton(c)}
           <button class="btn small" data-select="${esc(c.id)}">Open on its own</button></h2>
         ${renderInventories(c)}
       </section>`,
@@ -852,9 +861,34 @@ function ask(message, { ok = 'Continue', danger = false } = {}) {
 }
 
 function modal(html, { wide = false } = {}) {
+  releaseModal?.();
+  releaseModal = null;
   $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`;
 }
-const closeModal = () => ($('#modal-root').innerHTML = '');
+let releaseModal = null;
+const closeModal = () => {
+  releaseModal?.();
+  releaseModal = null;
+  $('#modal-root').innerHTML = '';
+};
+
+async function openModel(id) {
+  const c = state.view.containers.find((x) => x.id === id);
+  modal(`
+    <h2 class="with-icon">${icon('model', 20)}${esc(c.title)}</h2>
+    <p class="sub">${esc(c.subtitle ?? c.group)} · drag to rotate, scroll to zoom. Shown in the model's default colours.</p>
+    <div class="model-stage"><canvas aria-label="3D model of ${esc(c.title)}"></canvas><div class="model-status muted">Loading model…</div></div>
+    <footer><button class="btn" data-action="close-modal">Close</button></footer>`, { wide: true });
+  const stage = $('#modal-root .model-stage');
+  try {
+    const release = await showModel(stage.querySelector('canvas'), c.model.scene);
+    if (!stage.isConnected) return release(); // closed while loading
+    releaseModal = release;
+    stage.querySelector('.model-status').remove();
+  } catch (e) {
+    if (stage.isConnected) stage.querySelector('.model-status').textContent = e.message;
+  }
+}
 
 const checkList = (checks) => `
   <ul class="checks">${checks
@@ -1078,6 +1112,8 @@ document.addEventListener('click', async (e) => {
       state.slot = null;
       return applyOp({ op: 'sortInventory', inv: d.inv, by: state.sortBy, combine: state.sortCombine });
     }
+    case 'model':
+      return openModel(d.container);
     case 'catalogue':
       // A modal over whatever is showing; a save stays open with its staged changes.
       return openCatalogue();

@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import * as saves from './src/saves.js';
 import { OpError } from './src/inventory.js';
+import { ModelError } from './src/gamedata/model.js';
 import * as gamedata from './src/gamedata/index.js';
 
 const PORT = Number(process.env.PORT ?? 5280);
@@ -105,6 +106,31 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error(e);
       return send(res, 500, 'Icon failed', 'text/plain');
+    }
+  }
+
+  // 3D models and their textures, decoded from the game files (read-only, game data only).
+  const model = /^\/models\/(.+)\.bin$/.exec(url.pathname);
+  if (model) {
+    try {
+      const bin = gamedata.modelBinary(decodeURIComponent(model[1]));
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(bin);
+    } catch (e) {
+      if (!(e instanceof ModelError)) console.error(e);
+      return send(res, e instanceof ModelError ? 422 : 500, e instanceof ModelError ? e.message : 'Model failed', 'text/plain');
+    }
+  }
+  const texture = /^\/textures\/(.+\.dds)\.png$/.exec(url.pathname);
+  if (texture) {
+    try {
+      const png = gamedata.texturePng(decodeURIComponent(texture[1]));
+      if (!png) return send(res, 404, 'No texture', 'text/plain');
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(png);
+    } catch (e) {
+      console.error(e);
+      return send(res, 500, 'Texture failed', 'text/plain');
     }
   }
 

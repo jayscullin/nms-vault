@@ -59,8 +59,8 @@ function displayName(raw) {
 export function catalog(tree) {
   const ps = get(tree, PS);
   const containers = [];
-  const container = (group, title, { namePath, current = false } = {}) => {
-    const c = { id: `${group}:${containers.length}`, group, title, namePath, current, inventories: [] };
+  const container = (group, title, { namePath, current = false, model } = {}) => {
+    const c = { id: `${group}:${containers.length}`, group, title, namePath, current, model, inventories: [] };
     containers.push(c);
     return c;
   };
@@ -83,6 +83,7 @@ export function catalog(tree) {
     const c = container('Starships', displayName(s.Name) || `${shipType(file)} ${i + 1}`, {
       namePath: [...base, 'Name'],
       current: num(ps.PrimaryShip) === i,
+      model: toDisplay(file),
     });
     c.subtitle = shipType(file);
     inv(c, 'General', [...base, 'Inventory'], 'general');
@@ -95,11 +96,12 @@ export function catalog(tree) {
     const c = container('Multi-Tools', displayName(m.Name) || `Multi-Tool ${i + 1}`, {
       namePath: [...PS, 'Multitools', i, 'Name'],
       current: num(ps.ActiveMultioolIndex) === i,
+      model: toDisplay(m.Resource.Filename),
     });
     inv(c, 'Technology', [...PS, 'Multitools', i, 'Store'], 'tech');
   });
 
-  const fr = container('Freighter', 'Freighter');
+  const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? toDisplay(ps.CurrentFreighter.Filename) : undefined });
   inv(fr, 'General', [...PS, 'FreighterInventory'], 'general');
   inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'legacy');
   inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech');
@@ -173,6 +175,7 @@ export function view(tree, containers) {
       title: c.title,
       subtitle: c.subtitle,
       current: c.current,
+      model: c.model,
       nameKey: c.namePath?.join('/'),
       name: c.namePath ? displayName(get(tree, c.namePath)) : undefined,
       inventories: c.inventories.map((i) => inventoryView(tree, i)),

@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { loadItemDb, resolveItem } from './itemdb.js';
 import { decodeDds, encodePng } from './dds.js';
 import { ruleLimit } from './stacks.js';
+import { loadModel, packModel, ModelError } from './model.js';
 
 let db = null;
 let iconDir = null;
@@ -140,5 +141,53 @@ export function iconPng(key) {
   }
   if (memory.size > 500) memory.clear();
   memory.set(key, png);
+  return png;
+}
+
+// Whether a model can be shown in 3D, without decoding it. Procedural models
+// (ones with a descriptor) are refused: the game picks their parts from a seed.
+export function modelStatus(scene) {
+  if (!db?.available) return { available: false, reason: 'Game data unavailable' };
+  const name = String(scene ?? '').replaceAll('\\', '/').toLowerCase();
+  if (!name || !db.archives.find(name)) return { available: false, reason: 'Model not found in game data' };
+  if (db.archives.find(name.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
+    return { available: false, reason: 'Procedurally generated models can’t be previewed yet' };
+  }
+  return { available: true };
+}
+
+const models = new Map();
+// Textures referenced by a model served so far; only these can be fetched.
+const modelTextures = new Set();
+
+// Packed model bytes for a scene path, or throws ModelError.
+export function modelBinary(scene) {
+  if (!db?.available) throw new ModelError('Game data unavailable');
+  const key = String(scene).replaceAll('\\', '/').toLowerCase();
+  if (models.has(key)) return models.get(key);
+  const model = loadModel(db.archives, key);
+  for (const t of Object.values(model.textures)) if (t) modelTextures.add(t);
+  const bin = packModel(model);
+  if (models.size > 8) models.clear();
+  models.set(key, bin);
+  return bin;
+}
+
+const textures = new Map();
+
+// PNG for a texture a served model uses, or null. Cached on disk like icons.
+export function texturePng(name) {
+  if (!db?.available || !modelTextures.has(name)) return null;
+  if (textures.has(name)) return textures.get(name);
+  const file = path.join(iconDir, `tex-${name.replace(/[^a-z0-9]+/g, '_')}.png`);
+  let png;
+  if (fs.existsSync(file)) png = fs.readFileSync(file);
+  else {
+    if (!db.archives.find(name)) return null;
+    png = encodePng(decodeDds(db.archives.read(name)));
+    fs.writeFileSync(file, png);
+  }
+  if (textures.size > 16) textures.clear();
+  textures.set(name, png);
   return png;
 }

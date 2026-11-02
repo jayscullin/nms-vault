@@ -12,7 +12,7 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus } from './gamedata/index.js';
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
@@ -357,6 +357,7 @@ export function sessionView(s) {
     summary: toDisplay(get(s.origTree, ['BaseContext', 'PlayerStateData', 'SaveSummary']) ?? ''),
     items,
     ...v,
+    containers: v.containers.map((c) => (c.model ? { ...c, model: { scene: c.model, ...modelStatus(c.model) } } : c)),
   };
 }
 

@@ -136,3 +136,17 @@ test('the catalogue modal opens over an open save and closing it keeps staged ch
   await expect(page.locator('.content h2')).toContainText('Exosuit');
   await expect(page.locator('.badge')).toHaveText('1');
 });
+
+test('3D view: procedural ships are refused with a reason, fixed models load', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await page.locator('[data-select*="Starships"]').first().click();
+  const button = page.getByRole('button', { name: /3D view unavailable: Procedurally generated/ }).first();
+  await expect(button).toBeDisabled();
+  const fixed = await page.request.get('/models/' + encodeURIComponent('MODELS/COMMON/SPACECRAFT/FIGHTERS/WRACER.SCENE.MBIN') + '.bin');
+  expect(fixed.status()).toBe(200);
+  const body = await fixed.body();
+  const header = JSON.parse(body.toString('utf8', 4, 4 + body.readUInt32LE(0)));
+  expect(header.meshes.length).toBeGreaterThan(10);
+  const procedural = await page.request.get('/models/' + encodeURIComponent('MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN') + '.bin');
+  expect(procedural.status()).toBe(422);
+});

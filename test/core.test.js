@@ -11,6 +11,7 @@ import { subsetOf, anchorsOf, encodePng, decodeDds } from '../src/gamedata/dds.j
 import { resolveItem } from '../src/gamedata/itemdb.js';
 import { readStackBases, ruleLimit } from '../src/gamedata/stacks.js';
 import { applyRewardOp } from '../src/rewards.js';
+import { samplerTexture, packModel, loadModel } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
@@ -138,4 +139,35 @@ test('diff flags changes outside allowed paths', () => {
   assert.deepEqual(diffTrees(a, b, [['x', 'Slots']]).unexpected, []);
   const c = parse('{"x":{"Slots":[1,2]},"y":1,"z":"k"}');
   assert.deepEqual(diffTrees(a, c, []).unexpected, ['y']);
+});
+
+test('material sampler lookup takes the map path recorded before the sampler name', () => {
+  const rec = (map, name) => `${map}\0\0\0${name}\0\0`;
+  const mat = Buffer.from(rec('TEXTURES/A/TRIM.DDS', 'gDiffuseMap') + rec('TEXTURES/A/TRIM.MASKS.DDS', 'gMasksMap'), 'latin1');
+  assert.equal(samplerTexture(mat), 'TEXTURES/A/TRIM.DDS');
+  assert.equal(samplerTexture(mat, 'gMasksMap'), 'TEXTURES/A/TRIM.MASKS.DDS');
+  assert.equal(samplerTexture(mat, 'gNormalMap'), null);
+});
+
+test('packed models carry an aligned JSON header followed by the mesh arrays', () => {
+  const mesh = { name: 'M', material: 'm', positions: new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8]), uvs: new Float32Array(6), indices: new Uint32Array([0, 1, 2]) };
+  const bin = packModel({ name: 'X', meshes: [mesh], textures: { m: 'textures/t.dds' } });
+  const len = bin.readUInt32LE(0);
+  assert.equal(len % 4, 0);
+  const header = JSON.parse(bin.toString('utf8', 4, 4 + len));
+  const m = header.meshes[0];
+  assert.equal(m.vertices, 3);
+  assert.equal(m.count, 3);
+  const base = 4 + len;
+  assert.equal(bin.readFloatLE(base + m.positions + 8 * 4), 8);
+  assert.equal(bin.readUInt32LE(base + m.indices + 8), 2);
+  assert.equal(bin.length, base + 36 + 24 + 12);
+});
+
+test('model loading refuses odd paths and procedural models', () => {
+  const files = new Set(['models/a/ship.scene.mbin', 'models/a/ship.descriptor.mbin']);
+  const archives = { find: (n) => (files.has(n) ? {} : null), read: () => Buffer.alloc(0), paks: [] };
+  assert.throws(() => loadModel(archives, '../etc/passwd'), /Not a model path/);
+  assert.throws(() => loadModel(archives, 'MODELS/A/MISSING.SCENE.MBIN'), /not found/);
+  assert.throws(() => loadModel(archives, 'MODELS\\A\\SHIP.SCENE.MBIN'), /Procedurally generated/);
 });
