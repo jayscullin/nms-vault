@@ -280,8 +280,12 @@ function renderSidebar() {
     </nav>`;
 }
 
+// Matches src/inventory.js: storage and base inventories are capped by the game.
+const canUnlockSlots = (inv) => inv.kind === 'general' || inv.kind === 'tech';
+
 function renderGrid(inv) {
   const valid = new Set(inv.valid);
+  const canUnlock = canUnlockSlots(inv);
   const q = state.search.trim().toLowerCase();
   const cells = [];
   for (let y = 0; y < inv.height; y++) {
@@ -292,7 +296,7 @@ function renderGrid(inv) {
       const hit = s && ((q && matches(s.id, q)) || state.highlight === s.id);
       const icon = s && iconUrl(s.id);
       cells.push(`
-        <div class="cell ${unlocked ? '' : 'locked'} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}">
+        <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
           ${
             s
               ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
@@ -344,8 +348,7 @@ state.sortCombine = true;
 
 function sortTools(inv) {
   const locked = inv.width * inv.height - inv.valid.length;
-  // Matches src/inventory.js: storage and base inventories have game caps below their grid.
-  const unlock = (inv.kind === 'general' || inv.kind === 'tech') && locked > 0
+  const unlock = canUnlockSlots(inv) && locked > 0
     ? `<button class="btn small" data-action="unlock-slots" data-inv="${esc(inv.id)}" title="Unlock every locked cell in this grid">Unlock ${locked} slot${locked === 1 ? '' : 's'}</button>`
     : '';
   if (!BULK.has(inv.kind) || inv.slots.filter((s) => s.type !== 'Technology').length < 2) return unlock ? `<span class="inv-tools">${unlock}</span>` : '';
@@ -768,7 +771,7 @@ function describeOp(op) {
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'sortInventory': return `Sort ${at(op)} by ${op.by}${op.combine ? ', combining stacks' : ''}`;
-    case 'unlockSlots': return `Unlock all slots in ${at(op)}`;
+    case 'unlockSlots': return op.x === undefined ? `Unlock all slots in ${at(op)}` : `Unlock slot (${op.x}, ${op.y}) in ${at(op)}`;
     case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'learnWords': return `Learn all ${op.races.map((r) => state.view.knowledge?.words.find((w) => w.race === r)?.name ?? r).join(', ')} words`;
     case 'learnBlueprints': return `Learn ${op.ids.length} blueprint${op.ids.length === 1 ? '' : 's'}: ${op.ids.slice(0, 4).map((id) => state.view.knowledge?.blueprints.find((b) => b.id === id)?.name ?? id).join(', ')}${op.ids.length > 4 ? `, and ${op.ids.length - 4} more` : ''}`;
@@ -896,8 +899,12 @@ document.addEventListener('click', async (e) => {
     const inv = findInv(cell.dataset.inv);
     const x = Number(cell.dataset.x);
     const y = Number(cell.dataset.y);
+    const occupied = slotAt(inv, x, y);
+    const unlocked = inv.valid.includes(`${x},${y}`);
+    // An empty locked cell unlocks on click, like buying that slot in game.
+    if (!occupied && !unlocked && canUnlockSlots(inv)) return applyOp({ op: 'unlockSlots', inv: inv.id, x, y });
     // Filled cells and empty unlocked cells can be selected (an empty one to add an item).
-    state.slot = slotAt(inv, x, y) || inv.valid.includes(`${x},${y}`) ? { inv: inv.id, x, y } : null;
+    state.slot = occupied || unlocked ? { inv: inv.id, x, y } : null;
     return render();
   }
 

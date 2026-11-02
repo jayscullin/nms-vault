@@ -283,7 +283,16 @@ export function applyOp(tree, cat, stacks, op) {
       if (have.size >= w * h) throw new OpError('All slots in this inventory are already unlocked');
       const rowMajor = inv.ValidSlotIndices.every((p, i, l) => i === 0 || num(l[i - 1].Y) < num(p.Y) || (num(l[i - 1].Y) === num(p.Y) && num(l[i - 1].X) < num(p.X)));
       const missing = [];
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (!have.has(cellKey(x, y))) missing.push({ X: x, Y: y });
+      if (op.x !== undefined || op.y !== undefined) {
+        // One cell, as when buying a slot in game.
+        const x = Number(op.x);
+        const y = Number(op.y);
+        if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) throw new OpError(`Cell ${op.x},${op.y} is outside the inventory`);
+        if (have.has(cellKey(x, y))) throw new OpError('That slot is already unlocked');
+        missing.push({ X: x, Y: y });
+      } else {
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (!have.has(cellKey(x, y))) missing.push({ X: x, Y: y });
+      }
       // The game lists unlocked cells row by row; keep that order (append if it never was).
       inv.ValidSlotIndices.push(...missing);
       if (rowMajor) inv.ValidSlotIndices.sort((a, b) => num(a.Y) - num(b.Y) || num(a.X) - num(b.X));

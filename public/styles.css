@@ -235,6 +235,8 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .inv-tools { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .inv-tools select { padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); font-size: 12px; }
 .inv-tools .combine { font-size: 12px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.cell.locked.unlockable { cursor: pointer; }
+.cell.locked.unlockable:hover { opacity: .9; border-color: var(--accent); }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
 .modal-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }

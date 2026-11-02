@@ -131,6 +131,11 @@ test('unlock slots fills the grid row by row, but not storage with a game cap', 
   const s = S.openSession(ACCOUNT, 'save.hg');
   const ship = S.sessionView(s).containers.find((c) => c.group === 'Starships').inventories[0];
   assert.equal(ship.valid.length, 10);
+  // One cell first (as when buying a slot), then the rest.
+  S.addOp(s, { op: 'unlockSlots', inv: ship.id, x: 4, y: 2 });
+  assert.ok(S.sessionView(s).containers.find((c) => c.group === 'Starships').inventories[0].valid.includes('4,2'));
+  assert.throws(() => S.addOp(s, { op: 'unlockSlots', inv: ship.id, x: 4, y: 2 }), /already unlocked/);
+  assert.throws(() => S.addOp(s, { op: 'unlockSlots', inv: ship.id, x: 9, y: 9 }), /outside/);
   S.addOp(s, { op: 'unlockSlots', inv: ship.id });
   assert.throws(() => S.addOp(s, { op: 'unlockSlots', inv: ship.id }), /already unlocked/);
   const chest = S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];

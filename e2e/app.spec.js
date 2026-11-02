@@ -122,6 +122,22 @@ test.describe('editing', () => {
     await expect(page.locator('[data-action="unlock-slots"]')).toHaveCount(0);
   });
 
+  test('clicking a locked cell unlocks just that slot', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await page.locator('.nav-item', { hasText: 'Test Ship' }).click();
+    const grid = page.locator('.inv').nth(0);
+    await expect(grid.locator('.cell.locked')).toHaveCount(5);
+    await grid.locator('.cell[data-x="2"][data-y="2"]').click();
+    await expect(grid.locator('.cell.locked')).toHaveCount(4);
+    await expect(grid.locator('.cell[data-x="2"][data-y="2"]')).not.toHaveClass(/locked/);
+    await expect(grid.locator('[data-action="unlock-slots"]')).toHaveText('Unlock 4 slots');
+    await reviewAndWrite(page);
+    expect(verifyFile('save.hg').ok).toBe(true);
+    const valid = readSave('save.hg').BaseContext.PlayerStateData.ShipOwnership[0].Inventory.ValidSlotIndices;
+    expect(valid).toHaveLength(11);
+    expect(valid).toContainEqual({ X: 2, Y: 2 });
+  });
+
   test('undo and discard drop staged changes', async ({ page }) => {
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();
