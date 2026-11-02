@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildFixtures, ACCOUNT, SAVE_ID } from './fixtures/build.js';
+import { buildFixtures, writeSave, saveTree, ACCOUNT, SAVE_ID } from './fixtures/build.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nms-vault-test-'));
 process.env.NMS_SAVE_ROOT = path.join(root, 'saves');
@@ -15,6 +15,7 @@ process.env.NMS_GAME_DIR = path.join(root, 'no-game');
 const S = await import('../src/saves.js');
 const { decodeSave } = await import('../src/codec.js');
 const { deobfuscate } = await import('../src/keys.js');
+const { parse, stringify } = await import('../src/losslessJson.js');
 
 let dir;
 before(() => {
@@ -93,6 +94,36 @@ test('copying a save to another slot gives it a new save id; duplicates are dete
   const swap = await S.slotOp(ACCOUNT, 'swap', 'save3.hg', 'save5.hg');
   assert.ok(swap.verified);
   assert.equal(readTree('save3.hg').CommonStateData.SaveUniversalId, r.newId);
+});
+
+test('sort lays items out row by row, combines stacks within limits, and leaves tech alone', async () => {
+  fresh();
+  // Messy exosuit: split stacks of Carbon and Warp Hypercore scattered around.
+  const tree = saveTree();
+  const slots = tree.BaseContext.PlayerStateData.Inventory.Slots;
+  const extra = (id, type, amount, max, x, y) => ({ ...parse(stringify(slots[0])), Type: { InventoryType: type }, Id: id, Amount: amount, MaxAmount: max, Index: { X: x, Y: y } });
+  slots.push(extra('^FUEL1', 'Substance', 50, 9999, 4, 2), extra('^HYPERFUEL2', 'Product', 18, 20, 5, 3));
+  writeSave(dir, 'save.hg', tree);
+
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const inv = exosuit(s);
+  S.addOp(s, { op: 'sortInventory', inv: inv.id, by: 'type', combine: true });
+  const after = exosuit(s).slots.sort((a, b) => a.y - b.y || a.x - b.x).map((x) => `${x.x},${x.y} ${x.id} ${x.amount}/${x.max}`);
+  assert.deepEqual(after, [
+    '0,0 ^FUEL1 150/9999', // 100 + 50 combined
+    '1,0 ^LAND1 250/9999',
+    '2,0 ^ANTIMATTER 3/20',
+    '3,0 ^HYPERFUEL2 20/20', // 5 + 18 = 23 -> a full stack and the rest
+    '4,0 ^HYPERFUEL2 3/20',
+  ]);
+  const techInv = S.sessionView(s).containers[0].inventories[1];
+  assert.throws(() => S.addOp(s, { op: 'sortInventory', inv: techInv.id, by: 'name' }), /adjacency/);
+  const r = await S.commit(s);
+  assert.ok(r.ok, JSON.stringify(r.checks.filter((c) => !c.ok)));
+  assert.ok(S.verifyRoundTrip(ACCOUNT, 'save.hg').ok);
+  const total = (t, id) => t.BaseContext.PlayerStateData.Inventory.Slots.filter((x) => x.Id === id).reduce((n, x) => n + x.Amount, 0);
+  assert.equal(total(readTree('save.hg'), '^HYPERFUEL2'), 23);
+  assert.deepEqual(readTree('save.hg').BaseContext.PlayerStateData.Inventory_TechOnly, JSON.parse(stringify(tree.BaseContext.PlayerStateData.Inventory_TechOnly)));
 });
 
 test('account file round-trips; rewards need game data', () => {

@@ -247,6 +247,27 @@ export function applyOp(tree, cat, stacks, op) {
       loc.inv.Slots.push(slot);
       return { touched: [[...loc.info.path, 'Slots']], warnings };
     }
+    case 'sortInventory': {
+      const info = cat.inventories.get(op.inv);
+      if (!info) throw new OpError(`Unknown inventory ${op.inv}`);
+      if (!BULK.has(info.kind)) throw new OpError(`${info.where} can't be sorted; technology positions matter for adjacency bonuses`);
+      const by = SORTS[op.by];
+      if (!by) throw new OpError('Choose how to sort');
+      const inv = get(tree, info.path);
+      const key = (s) => cellKey(num(s.Index.X), num(s.Index.Y));
+      // Technology keeps its cell; products and substances flow around it.
+      const fixed = new Set(inv.Slots.filter((s) => !isBulkItem(s)).map(key));
+      const cells = inv.ValidSlotIndices.map((i) => [num(i.X), num(i.Y)])
+        .filter(([x, y]) => !fixed.has(cellKey(x, y)))
+        .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+      let items = inv.Slots.filter(isBulkItem);
+      if (op.combine) items = combineStacks(inv, items);
+      if (items.length > cells.length) throw new OpError('Not enough unlocked cells to lay out these items');
+      const name = (s) => (stacks.name?.(s.Id) ?? toDisplay(s.Id)).toLowerCase();
+      items.sort((a, b) => by(a, b, name) || num(b.Amount) - num(a.Amount) || String(a.Id).localeCompare(String(b.Id)));
+      items.forEach((s, i) => setIndex(s, cells[i][0], cells[i][1]));
+      return { touched: [[...info.path, 'Slots']], warnings };
+    }
     case 'recharge': {
       const loc = locate(tree, cat, op);
       if (!loc.slot || isBulkItem(loc.slot)) throw new OpError('Only technology can be recharged');
@@ -371,6 +392,40 @@ export function applyOp(tree, cat, stacks, op) {
     default:
       throw new OpError(`Unknown operation ${op?.op}`);
   }
+}
+
+const TYPE_ORDER = { Substance: 0, Product: 1 };
+const SORTS = {
+  name: (a, b, name) => name(a).localeCompare(name(b)),
+  type: (a, b, name) => (TYPE_ORDER[a.Type?.InventoryType] ?? 2) - (TYPE_ORDER[b.Type?.InventoryType] ?? 2) || name(a).localeCompare(name(b)),
+  amount: (a, b, name) => num(b.Amount) - num(a.Amount) || name(a).localeCompare(name(b)),
+};
+
+// Merges partial stacks of the same item, filling each to its stack limit (never
+// changed). Emptied slots are removed from the inventory; returns the remaining items.
+function combineStacks(inv, items) {
+  const groups = new Map();
+  for (const s of items) {
+    const k = `${s.Type?.InventoryType}|${s.Id}|${num(s.MaxAmount)}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  }
+  const kept = [];
+  for (const group of groups.values()) {
+    const max = num(group[0].MaxAmount);
+    let total = group.reduce((n, s) => n + num(s.Amount), 0);
+    for (const s of group) {
+      if (total <= 0) {
+        inv.Slots.splice(inv.Slots.indexOf(s), 1);
+        continue;
+      }
+      const n = Math.min(max, total);
+      s.Amount = setNum(s.Amount, n);
+      total -= n;
+      kept.push(s);
+    }
+  }
+  return kept;
 }
 
 function setIndex(slot, x, y) {

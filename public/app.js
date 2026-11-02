@@ -317,7 +317,7 @@ function renderContainer(c) {
       .map(
         (inv) => `
       <section class="inv" data-inv-section="${esc(inv.id)}">
-        <h3>${esc(inv.label)} <span class="muted">${inv.slots.length}/${inv.valid.length} used · ${inv.width}×${inv.height}${inv.stackGroup ? ` · ${esc(inv.stackGroup)} stacks` : ''}</span></h3>
+        <h3>${esc(inv.label)} <span class="muted">${inv.slots.length}/${inv.valid.length} used · ${inv.width}×${inv.height}${inv.stackGroup ? ` · ${esc(inv.stackGroup)} stacks` : ''}</span>${sortTools(inv)}</h3>
         ${renderGrid(inv)}
       </section>`,
       )
@@ -335,6 +335,22 @@ function aggregateItems() {
     }
   }
   return [...items.values()];
+}
+
+// Sort controls for inventories that hold products and substances. The chosen
+// order and the combine option are remembered for the session.
+state.sortBy = 'type';
+state.sortCombine = true;
+
+function sortTools(inv) {
+  if (!BULK.has(inv.kind) || inv.slots.filter((s) => s.type !== 'Technology').length < 2) return '';
+  const opts = [['type', 'Type'], ['name', 'Name'], ['amount', 'Amount']];
+  return `
+    <span class="inv-tools">
+      <select data-sort-by aria-label="Sort ${esc(inv.label)} by">${opts.map(([v, l]) => `<option value="${v}" ${v === state.sortBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="combine" title="Merge partial stacks of the same item, up to the game's stack limit"><input type="checkbox" data-sort-combine ${state.sortCombine ? 'checked' : ''}> Combine stacks</label>
+      <button class="btn small" data-action="sort" data-inv="${esc(inv.id)}">Sort</button>
+    </span>`;
 }
 
 function renderItems() {
@@ -745,6 +761,7 @@ function describeOp(op) {
     case 'rename': return `Rename to “${op.name}”`;
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
+    case 'sortInventory': return `Sort ${at(op)} by ${op.by}${op.combine ? ', combining stacks' : ''}`;
     case 'repair': return `Repair technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'learnWords': return `Learn all ${op.races.map((r) => state.view.knowledge?.words.find((w) => w.race === r)?.name ?? r).join(', ')} words`;
     case 'learnBlueprints': return `Learn ${op.ids.length} blueprint${op.ids.length === 1 ? '' : 's'}: ${op.ids.slice(0, 4).map((id) => state.view.knowledge?.blueprints.find((b) => b.id === id)?.name ?? id).join(', ')}${op.ids.length > 4 ? `, and ${op.ids.length - 4} more` : ''}`;
@@ -933,6 +950,13 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: d.action, ...state.slot });
     case 'add-item':
       return openAddItem();
+    case 'sort': {
+      const tools = t.closest('.inv-tools');
+      state.sortBy = tools.querySelector('[data-sort-by]').value;
+      state.sortCombine = tools.querySelector('[data-sort-combine]').checked;
+      state.slot = null;
+      return applyOp({ op: 'sortInventory', inv: d.inv, by: state.sortBy, combine: state.sortCombine });
+    }
     case 'catalogue':
       state.mode = 'catalogue';
       state.search = '';

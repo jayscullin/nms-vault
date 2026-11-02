@@ -232,6 +232,7 @@ function stackPolicy(tree, containers) {
     // game already stores in the group are also allowed (see limitFor).
     trusted,
     item: itemInfo,
+    name: (id) => describe(id)?.name ?? null,
     addable: isAddable,
     template: (type) => templates.get(type) ?? null,
     limitFor(slot, inv) {
@@ -384,6 +385,7 @@ function opScope(s, op) {
     case 'setAmount':
     case 'remove':
     case 'add':
+    case 'sortInventory':
     case 'recharge':
     case 'repair': return [inv(op.inv)];
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];

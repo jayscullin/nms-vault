@@ -87,6 +87,25 @@ test.describe('editing', () => {
     await expect(page.locator('.badge')).toHaveCount(0);
   });
 
+  test('sort an inventory by name and write it', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    const tools = page.locator('.inv').nth(0).locator('.inv-tools');
+    await tools.locator('[data-sort-by]').selectOption('name');
+    await tools.locator('[data-action="sort"]').click();
+    await expect(page.locator('.badge')).toHaveText('1');
+    // Grid cells are in row order, so the shown names must now be alphabetical.
+    const names = (await page.locator('.inv').nth(0).locator('.tile').evaluateAll((tiles) => tiles.map((t) => t.getAttribute('aria-label'))))
+      .map((l) => l.replace(/ \(\^.*\)$/, '').toLowerCase());
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    await reviewAndWrite(page);
+    expect(verifyFile('save.hg').ok).toBe(true);
+    // Written layout: one item per cell, filling the first row from the left.
+    const cells = exosuitSlots(readSave('save.hg')).map((s) => `${s.Index.X},${s.Index.Y}`).sort();
+    expect(cells).toEqual(['0,0', '1,0', '2,0', '3,0']);
+    // Technology grids have no sort control.
+    await expect(page.locator('.inv').nth(1).locator('.inv-tools')).toHaveCount(0);
+  });
+
   test('undo and discard drop staged changes', async ({ page }) => {
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();
