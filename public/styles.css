@@ -227,6 +227,10 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .earlier > summary:hover { color: var(--text); }
 .earlier .slot-row { padding-left: 0; padding-right: 0; }
 .slot-warning { margin: 4px 16px 6px 64px; border-left-color: var(--bad); background: #ff6b6b14; }
+.confirm-backdrop { z-index: 15; }
+.modal.confirm { width: min(460px, 100%); }
+.confirm-text { margin: 0; line-height: 1.5; }
+.btn.danger-solid { background: var(--bad); border-color: var(--bad); color: #1b0505; font-weight: 600; }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .slot-select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
 .modal-sub { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }

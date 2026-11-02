@@ -49,12 +49,13 @@ export async function reviewAndWrite(page) {
   await page.locator('.modal [data-action="close-modal"]').click();
 }
 
-// Accept every confirm() and remember the messages.
-export function acceptDialogs(page) {
-  const messages = [];
-  page.on('dialog', (d) => {
-    messages.push(d.message());
-    d.accept();
-  });
-  return messages;
+// Answer NMS Vault's in-page confirmation; returns its message. (Native browser
+// dialogs are dismissed by Playwright, so any left in the app would fail the test.)
+export async function confirmDialog(page) {
+  const box = page.locator('#confirm-root .confirm');
+  await expect(box).toBeVisible();
+  const text = await box.locator('.confirm-text').innerText();
+  await box.locator('[data-confirm="ok"]').click();
+  await expect(box).toHaveCount(0);
+  return text;
 }

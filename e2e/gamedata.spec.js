@@ -3,7 +3,7 @@
 
 import { test, expect } from '@playwright/test';
 import { USE_GAMEDATA } from './env.js';
-import { resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite } from './helpers.js';
+import { resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite, confirmDialog } from './helpers.js';
 
 test.skip(!USE_GAMEDATA, 'needs the game installed (E2E_GAMEDATA=1)');
 test.beforeEach(() => resetFixtures());
@@ -29,6 +29,32 @@ test('add an item from the catalogue to an empty cell', async ({ page }) => {
   expect(verifyFile('save.hg').ok).toBe(true);
   const added = exosuitSlots(readSave('save.hg')).find((s) => s.Index.X === 5 && s.Index.Y === 3);
   expect([added.Id, added.Amount, added.MaxAmount]).toEqual(['^LAND1', 123, 9999]);
+});
+
+test('remove, recharge and repair technology, then write', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  const tech = (x) => cell(page, 1, x, 0).locator('.tile');
+  // Upgrade module (not core): can be removed.
+  await tech(1).click();
+  await page.locator('[data-action="remove"]').click();
+  expect(await confirmDialog(page)).toContain('Remove');
+  await expect(tech(1)).toHaveCount(0);
+  // Life Support at 50/100: core, chargeable.
+  await tech(0).click();
+  await expect(page.locator('[data-action="remove"]')).toHaveCount(0);
+  await page.locator('[data-action="recharge"]').click();
+  // Damaged Exocraft Summoning Unit: repair.
+  await tech(2).click();
+  await page.locator('[data-action="repair"]').click();
+  await expect(page.locator('.badge')).toHaveText('3');
+  await reviewAndWrite(page);
+
+  expect(verifyFile('save.hg').ok).toBe(true);
+  const slots = readSave('save.hg').BaseContext.PlayerStateData.Inventory_TechOnly.Slots;
+  expect(slots.find((s) => s.Id.startsWith('^UP_HOT3'))).toBeUndefined();
+  expect(slots.find((s) => s.Id === '^ENERGY').Amount).toBe(100);
+  const summon = slots.find((s) => s.Id === '^SUMMON_SUIT');
+  expect([summon.DamageFactor, summon.FullyInstalled]).toEqual([0, true]);
 });
 
 test('learn all Korvax words', async ({ page }) => {

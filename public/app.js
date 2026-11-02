@@ -608,7 +608,7 @@ async function runSlotOp(d) {
   const cloud = isSteam && (d.op === 'delete' || d.op === 'move')
     ? `\n\nSteam Cloud may bring back ${d.file} the next time the game starts. To delete a save for good, delete it from the game’s own load menu.`
     : '';
-  if (!confirm(`${what}?${overwrite}${separate} A backup is taken first.${cloud}`)) return;
+  if (!(await ask(`${what}?${overwrite}${separate} A backup is taken first.${cloud}`, { ok: what.split(' ')[0], danger: d.op === 'delete' }))) return;
   await run(async () => {
     const r = await api('/api/slot', { account: d.account, op: d.op, from: d.file, to });
     closeModal();
@@ -688,6 +688,39 @@ function unlock(ids) {
 }
 
 // ---- modals ----------------------------------------------------------------
+
+// Confirmation in the page itself. Browsers can silently suppress window.confirm()
+// ("prevent this page from creating additional dialogs"), which made buttons do nothing.
+function ask(message, { ok = 'Continue', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const root = $('#confirm-root');
+    root.innerHTML = `
+      <div class="modal-backdrop confirm-backdrop">
+        <div class="modal confirm" role="alertdialog" aria-modal="true" aria-label="Confirm">
+          <p class="confirm-text">${esc(message).replace(/\n/g, '<br>')}</p>
+          <footer>
+            <button class="btn" data-confirm="cancel">Cancel</button>
+            <button class="btn ${danger ? 'danger-solid' : 'primary'}" data-confirm="ok">${esc(ok)}</button>
+          </footer>
+        </div>
+      </div>`;
+    const done = (answer) => {
+      root.innerHTML = '';
+      document.removeEventListener('keydown', onKey, true);
+      resolve(answer);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        done(false);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    root.querySelector('[data-confirm="ok"]').addEventListener('click', (e) => { e.stopPropagation(); done(true); });
+    root.querySelector('[data-confirm="cancel"]').addEventListener('click', (e) => { e.stopPropagation(); done(false); });
+    root.querySelector('[data-confirm="ok"]').focus();
+  });
+}
 
 function modal(html) {
   $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`;
@@ -846,7 +879,7 @@ document.addEventListener('click', async (e) => {
 
   switch (d.action) {
     case 'home':
-      if (state.view?.ops && !confirm('Discard unsaved changes?')) return;
+      if (state.view?.ops && !(await ask('Discard unsaved changes?', { ok: 'Discard', danger: true }))) return;
       state.view = null;
       state.mode = null;
       state.search = '';
@@ -868,7 +901,7 @@ document.addEventListener('click', async (e) => {
     case 'undo':
       return run(async () => { state.view = await api('/api/undo', { sessionId: state.view.sessionId }); render(); });
     case 'reset':
-      if (!confirm('Discard all pending changes?')) return;
+      if (!(await ask('Discard all pending changes?', { ok: 'Discard', danger: true }))) return;
       return run(async () => { state.view = await api('/api/reset', { sessionId: state.view.sessionId }); render(); });
     case 'review':
       return openReview();
@@ -879,7 +912,7 @@ document.addEventListener('click', async (e) => {
     case 'backups':
       return openBackups(d.account);
     case 'restore':
-      if (!confirm('Restore this backup over the current save? The current files are backed up first.')) return;
+      if (!(await ask('Restore this backup over the current save? The current files are backed up first.', { ok: 'Restore' }))) return;
       return run(async () => {
         const r = await api('/api/restore', { account: d.account, backup: d.backup });
         closeModal();
@@ -892,7 +925,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'remove': {
       const s = slotAt(findInv(state.slot.inv), state.slot.x, state.slot.y);
-      if (s?.type === 'Technology' && !confirm(`Remove ${itemName(s.id)}? It will be gone from the save once written (a backup is kept).`)) return;
+      if (s?.type === 'Technology' && !(await ask(`Remove ${itemName(s.id)}? It will be gone from the save once written (a backup is kept).`, { ok: 'Remove', danger: true }))) return;
       return applyOp({ op: 'remove', ...state.slot });
     }
     case 'recharge':
@@ -917,14 +950,14 @@ document.addEventListener('click', async (e) => {
       return applyOp({ op: 'learnBlueprints', ids: [...state.bpSel] }).then(() => { state.bpSel.clear(); render(); });
     case 'learn-shown': {
       const ids = shownBlueprints().filter((b) => !b.known).map((b) => b.id);
-      if (ids.length > 10 && !confirm(`Learn ${ids.length} blueprints? You can still review before anything is written.`)) return;
+      if (ids.length > 10 && !(await ask(`Learn ${ids.length} blueprints? You can still review before anything is written.`, { ok: 'Learn' }))) return;
       return applyOp({ op: 'learnBlueprints', ids }).then(() => { state.bpSel.clear(); render(); });
     }
     case 'unlock-selected':
       return unlock([...state.rewardSel]);
     case 'unlock-shown': {
       const ids = shownRewards().filter((r) => !r.unlocked).map((r) => r.id);
-      if (ids.length > 10 && !confirm(`Unlock ${ids.length} rewards? You can still review before anything is written.`)) return;
+      if (ids.length > 10 && !(await ask(`Unlock ${ids.length} rewards? You can still review before anything is written.`, { ok: 'Unlock' }))) return;
       return unlock(ids);
     }
     case 'clear-selection':

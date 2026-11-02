@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import {
   resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite,
-  acceptDialogs, writeFixtureSave, saveTree, fileExists,
+  confirmDialog, writeFixtureSave, saveTree, fileExists,
 } from './helpers.js';
 
 test.beforeEach(() => resetFixtures());
@@ -88,7 +88,6 @@ test.describe('editing', () => {
   });
 
   test('undo and discard drop staged changes', async ({ page }) => {
-    acceptDialogs(page);
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();
     await page.locator('[data-action="fill"]').click();
@@ -97,6 +96,7 @@ test.describe('editing', () => {
     await expect(page.locator('.badge')).toHaveCount(0);
     await page.locator('[data-action="fill"]').click();
     await page.locator('[data-action="reset"]').click();
+    await confirmDialog(page);
     await expect(page.locator('.badge')).toHaveCount(0);
   });
 
@@ -115,11 +115,11 @@ test.describe('editing', () => {
 
 test.describe('save slots', () => {
   test('copy to an empty slot creates a separate save with a new id', async ({ page }) => {
-    acceptDialogs(page);
     await home(page);
     await page.locator('[data-action="slot-menu"][data-file="save.hg"]').first().click();
     await page.locator('#slot-target').selectOption('save5.hg');
     await page.locator('[data-action="slot-op"][data-op="copy"]').click();
+    expect(await confirmDialog(page)).toContain('new save ID');
     await expect(page.locator('.toast').last()).toContainText('verified');
     await expect(page.locator('.slot-group')).toHaveCount(3);
     expect(verifyFile('save5.hg').ok).toBe(true);
@@ -128,12 +128,11 @@ test.describe('save slots', () => {
   });
 
   test('delete warns about Steam Cloud and removes the files', async ({ page }) => {
-    const messages = acceptDialogs(page);
     await home(page);
     await page.locator('[data-action="slot-menu"][data-file="save3.hg"]').first().click();
     await page.locator('[data-action="slot-op"][data-op="delete"]').click();
+    expect(await confirmDialog(page)).toContain('Steam Cloud');
     await expect(page.locator('.slot-group')).toHaveCount(1);
-    expect(messages.at(-1)).toContain('Steam Cloud');
     expect(fileExists('save3.hg')).toBe(false);
     expect(fileExists('mf_save3.hg')).toBe(false);
   });
@@ -148,13 +147,14 @@ test.describe('save slots', () => {
   });
 
   test('backups list every write and restore puts a save back', async ({ page }) => {
-    acceptDialogs(page);
     await home(page);
     await page.locator('[data-action="slot-menu"][data-file="save3.hg"]').first().click();
     await page.locator('[data-action="slot-op"][data-op="delete"]').click();
+    await confirmDialog(page);
     await expect(page.locator('.slot-group')).toHaveCount(1);
     await page.locator('[data-action="backups"]').click();
     await page.locator('.modal [data-action="restore"]').first().click();
+    await confirmDialog(page);
     await expect(page.locator('.toast').last()).toContainText('Restored');
     await expect(page.locator('.slot-group')).toHaveCount(2);
     expect(verifyFile('save3.hg').ok).toBe(true);
