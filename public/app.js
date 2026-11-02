@@ -308,7 +308,7 @@ function renderGrid(inv) {
         </div>`);
     }
   }
-  return `<div class="grid" style="grid-template-columns: repeat(${inv.width}, var(--cell))">${cells.join('')}</div>`;
+  return `<div class="grid" style="--cols: ${inv.width}">${cells.join('')}</div>`;
 }
 
 function renderContainer(c) {
