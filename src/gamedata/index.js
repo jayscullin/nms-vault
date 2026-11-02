@@ -75,7 +75,7 @@ export function browseItems(query, type, limit = 200) {
   for (const [id, item] of Object.entries(db.items)) {
     if (!item.name || (type && item.type !== type)) continue;
     if (q && !item.name.toLowerCase().includes(q) && !id.toLowerCase().includes(q)) continue;
-    out.push({ id, type: item.type, name: item.name, subtitle: item.subtitle, desc: item.desc, icon: Boolean(item.icon), stack: item.stack, core: item.core, chargeable: item.chargeable, procedural: Boolean(item.procedural) });
+    out.push({ id, type: item.type, name: item.name, subtitle: item.subtitle, desc: item.desc, icon: Boolean(item.icon), stack: item.stack, core: item.core, chargeable: item.chargeable, procedural: Boolean(item.procedural), addable: Boolean(addable(item)) });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   return { total: out.length, items: out.slice(0, limit) };

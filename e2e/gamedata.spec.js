@@ -91,6 +91,39 @@ test('the item catalogue opens in a modal without a save, from the top bar', asy
   await expect(dialog.locator('.cat-meta').first()).toContainText('Technology');
 });
 
+test('the catalogue shows what you own and adds what you don’t', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await page.locator('.topbar [data-action="catalogue"]').click();
+  const dialog = page.locator('.modal.wide');
+  // Owned: Ferrite Dust (^LAND1, 250 in the exosuit).
+  await page.locator('#cat-search').fill('Ferrite Dust');
+  const owned = dialog.locator('.cat-row').filter({ hasText: 'Ferrite Dust' }).first();
+  await expect(owned.locator('.owned')).toHaveText('In 1 place · 250 total');
+  // Not owned: Carbon Nanotubes gets a [+].
+  await page.locator('#cat-search').fill('Carbon Nanotubes');
+  const row = dialog.locator('.cat-row').filter({ hasText: 'Carbon Nanotubes' }).first();
+  await expect(row).toContainText('Not in your inventories');
+  await row.locator('[data-action="cat-add"]').click();
+  await expect(dialog.getByRole('heading', { name: 'Add Carbon Nanotubes' })).toBeVisible();
+  await expect(dialog.locator('.add-target input:checked')).toHaveCount(1);
+  await page.locator('#cat-add-amount').fill('7');
+  await dialog.locator('[data-action="cat-add-confirm"]').click();
+  // Back in the catalogue, now owned.
+  await page.locator('#cat-search').fill('Carbon Nanotubes');
+  await expect(dialog.locator('.cat-row').filter({ hasText: 'Carbon Nanotubes' }).first().locator('.owned')).toContainText('7 total');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.badge')).toHaveText('1');
+  await reviewAndWrite(page);
+  expect(verifyFile('save.hg').ok).toBe(true);
+  expect(exosuitSlots(readSave('save.hg')).find((s) => s.Id === '^NANOTUBES')).toMatchObject({ Amount: 7 });
+  // "Show" jumps to the item and closes the catalogue.
+  await page.locator('.topbar [data-action="catalogue"]').click();
+  await page.locator('#cat-search').fill('Ferrite Dust');
+  await dialog.locator('.cat-row').filter({ hasText: 'Ferrite Dust' }).first().locator('[data-jump]').click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  await expect(page.locator('.cell.selected .tile')).toHaveAttribute('aria-label', /Ferrite Dust/);
+});
+
 test('the catalogue modal opens over an open save and closing it keeps staged changes', async ({ page }) => {
   await openSave(page, 'save.hg');
   await cell(page, 0, 0, 0).locator('.tile').click();

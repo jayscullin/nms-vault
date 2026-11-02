@@ -621,9 +621,80 @@ async function loadCatalogue() {
           ${i.desc ? `<p class="desc">${esc(i.desc)}</p>` : ''}
           <div class="cat-meta"><span class="dot"></span>${esc(i.type)} · <span class="mono">${esc(i.id)}</span>${i.stack === 0 ? ' · doesn’t stack' : i.stack ? ` · stack ×${fmt(i.stack)}` : ''}${i.core ? ' · core tech' : ''}${i.chargeable ? ' · uses charge' : ''}${i.procedural ? ' · procedural' : ''}</div>
         </div>
+        ${ownership(i)}
       </div>`).join('')}</div>`;
   const tabs = $('[data-cat-tabs]');
   if (tabs) tabs.innerHTML = catalogueTabs();
+}
+
+// With a save open: where a catalogue item already is, or a [+] to add it.
+const baseIdOf = (id) => String(id).replace(/^\^/, '').split('#')[0];
+
+function ownedLocations(id) {
+  return allInventories().flatMap((inv) => inv.slots.filter((s) => baseIdOf(s.id) === id).map((slot) => ({ inv, slot })));
+}
+
+function ownership(item) {
+  if (!state.view?.containers) return '';
+  const where = ownedLocations(item.id);
+  if (where.length) {
+    const total = where.reduce((n, l) => n + (l.slot.type === 'Technology' ? 1 : l.slot.amount), 0);
+    const first = where[0];
+    return `
+      <div class="cat-owned">
+        <span class="owned">In ${where.length} place${where.length === 1 ? '' : 's'}${item.type === 'Technology' ? '' : ` · ${fmt(total)} total`}</span>
+        <button class="btn small" data-jump="${esc(first.inv.container.id)}" data-inv="${esc(first.inv.id)}" data-x="${first.slot.x}" data-y="${first.slot.y}" title="${esc(where.map((l) => `${l.inv.container.title} · ${l.inv.label}`).join('\n'))}">Show</button>
+      </div>`;
+  }
+  return `
+    <div class="cat-owned">
+      <span class="muted small">Not in your inventories</span>
+      ${item.addable
+        ? `<button class="btn icon-btn" data-action="cat-add" data-id="${esc(item.id)}" data-name="${esc(item.name)}" aria-label="Add ${esc(item.name)} to an inventory" title="Add to an inventory">+</button>`
+        : ''}
+    </div>`;
+}
+
+// Pick where a catalogue item goes: inventories with free cells and the game's limit there.
+async function openCatalogueAdd(id, name) {
+  const targets = await api('/api/add-targets', { sessionId: state.view.sessionId, id });
+  const usable = targets.filter((t) => !t.reason);
+  modal(`
+    <h2 class="with-icon">${icon('catalogue', 20)}Add ${esc(name)}</h2>
+    <p class="muted">It goes into the first free unlocked cell of the inventory you pick, with the game's stack limit for it there. Like any edit, it's staged until you save.</p>
+    <div class="add-targets">${targets.map((t, i) => `
+      <label class="add-target ${t.reason ? 'unavailable' : ''}" ${t.reason ? `title="${esc(t.reason)}"` : ''}>
+        <input type="radio" name="add-target" value="${i}" ${t.reason ? 'disabled' : ''} ${t === usable[0] ? 'checked' : ''}>
+        <span><b>${esc(t.where)}</b><span class="muted small">${t.reason ? esc(t.reason) : `${t.free} free · stacks to ${fmt(t.limit)}`}</span></span>
+      </label>`).join('') || '<p class="muted">No inventory can take new items.</p>'}
+    </div>
+    <label class="add-amount">Amount <input type="number" id="cat-add-amount" min="1" value="${usable[0]?.limit ?? 1}" max="${usable[0]?.limit ?? 1}"></label>
+    <footer>
+      <button class="btn" data-action="catalogue">Back to catalogue</button>
+      <button class="btn primary" data-action="cat-add-confirm" data-id="${esc(id)}" ${usable.length ? '' : 'disabled'}>Add</button>
+    </footer>`, { wide: true });
+  state.cat.addTargets = targets;
+  // Picking an inventory resets the amount to a full stack there.
+  for (const radio of document.querySelectorAll('[name="add-target"]')) {
+    radio.addEventListener('change', () => {
+      const t = targets[Number(radio.value)];
+      const amount = $('#cat-add-amount');
+      amount.max = t.limit;
+      amount.value = t.limit;
+    });
+  }
+}
+
+async function confirmCatalogueAdd(id) {
+  const t = state.cat.addTargets?.[Number(document.querySelector('[name="add-target"]:checked')?.value)];
+  if (!t) return toast('Choose an inventory', true);
+  const amount = Number($('#cat-add-amount').value);
+  const before = state.view.ops;
+  await applyOp({ op: 'add', inv: t.inv, x: t.cell[0], y: t.cell[1], id, amount });
+  if (state.view.ops > before) {
+    toast(`Added ${fmt(amount)} to ${t.where}`);
+    openCatalogue();
+  }
 }
 
 // ---- save slot menu ------------------------------------------------------------
@@ -918,9 +989,11 @@ document.addEventListener('click', async (e) => {
     return render();
   }
   if (d.jump) {
+    closeModal(); // e.g. "Show" in the catalogue
     state.selected = d.jump;
     state.slot = { inv: d.inv, x: Number(d.x), y: Number(d.y) };
-    return render();
+    render();
+    return document.querySelector('.cell.selected')?.scrollIntoView({ block: 'center' });
   }
   if (d.select) {
     state.selected = d.select;
@@ -1008,6 +1081,10 @@ document.addEventListener('click', async (e) => {
     case 'catalogue':
       // A modal over whatever is showing; a save stays open with its staged changes.
       return openCatalogue();
+    case 'cat-add':
+      return run(() => openCatalogueAdd(d.id, d.name));
+    case 'cat-add-confirm':
+      return confirmCatalogueAdd(d.id);
     case 'slot-menu':
       return run(() => openSlotMenu(d.account, d.file));
     case 'slot-op':

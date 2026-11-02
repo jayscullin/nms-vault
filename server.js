@@ -32,6 +32,7 @@ const routes = {
   },
   'POST /api/catalog': (b) => saves.addableItems(saves.getSession(b.sessionId), b.inv, b.q),
   'POST /api/browse': (b) => gamedata.browseItems(b.q, b.type),
+  'POST /api/add-targets': (b) => saves.addTargets(saves.getSession(b.sessionId), b.id),
   'POST /api/export': (b) => saves.exportJson(b.account, b.file),
   'POST /api/slot': (b) => saves.slotOp(b.account, b.op, b.from, b.to),
   'GET /api/slots': () => saves.SLOT_FILES,

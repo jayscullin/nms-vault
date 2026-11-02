@@ -373,6 +373,34 @@ export function addableItems(s, invId, query) {
   });
 }
 
+// Where an item could be added: every inventory that takes new items, with its free
+// unlocked cells and the game's stack limit for the item there (or why not).
+export function addTargets(s, id) {
+  const saveId = `^${String(id).replace(/^\^/, '')}`;
+  const info = itemInfo(saveId);
+  if (!info || !isAddable(saveId)) throw new OpError('Only named products and substances from the game data can be added');
+  const out = [];
+  for (const c of s.containers) {
+    for (const inv of c.inventories) {
+      if (inv.kind !== 'general' && inv.kind !== 'storage') continue;
+      const v = get(s.work, inv.path);
+      const used = new Set(v.Slots.map((x) => `${num0(x.Index.X)},${num0(x.Index.Y)}`));
+      const free = v.ValidSlotIndices.map((i) => [num0(i.X), num0(i.Y)]).filter(([x, y]) => !used.has(`${x},${y}`));
+      const limit = s.stacks.limitFor({ Id: saveId, Type: { InventoryType: info.type } }, v);
+      out.push({
+        inv: inv.id,
+        where: inv.where,
+        group: c.group,
+        free: free.length,
+        cell: free[0] ?? null,
+        limit,
+        reason: limit === null ? 'The game’s stack limit for this item here can’t be confirmed' : free.length === 0 ? 'No free unlocked cell' : undefined,
+      });
+    }
+  }
+  return out;
+}
+
 // Item ids in messages ("^GEODE_LAND") become their in-game names where known.
 const nameIds = (text) => text.replace(/\^[A-Z0-9_]+(?:#\d+)?/g, (id) => describe(id)?.name ?? id);
 

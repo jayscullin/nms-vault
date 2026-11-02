@@ -272,6 +272,16 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 .topbar .btn.primary .icon { margin-right: 0; }
 .modal.wide { width: min(960px, 100%); max-height: 88vh; display: flex; flex-direction: column; }
 .modal.wide #cat-results { overflow: auto; min-height: 0; flex: 1; }
+.cat-owned { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; min-width: 130px; }
+.cat-owned .owned { color: var(--ok); font-size: 12px; font-weight: 600; }
+.cat-owned .icon-btn { font-size: 18px; font-weight: 600; line-height: 1; width: 32px; height: 32px; }
+.add-targets { display: grid; gap: 6px; margin: 12px 0; max-height: 50vh; overflow: auto; }
+.add-target { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
+.add-target:has(input:checked) { border-color: var(--accent); }
+.add-target.unavailable { opacity: .5; cursor: default; }
+.add-target > span { display: flex; flex-direction: column; }
+.add-amount { display: inline-flex; gap: 8px; align-items: center; }
+.add-amount input { width: 110px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); text-align: right; }
 .modal .reward-bar input[type=search] { flex: 1; min-width: 180px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
 .btn.active { border-color: var(--accent); color: var(--accent); }
 .home-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -282,7 +292,7 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 .word-card .bar { height: 4px; background: #ffffff14; border-radius: 2px; overflow: hidden; }
 .word-card .bar i { display: block; height: 100%; background: var(--accent); }
 .cat-list { display: grid; gap: 6px; }
-.cat-row { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: start; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+.cat-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: start; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; }
 .cat-icon { width: 56px; height: 56px; object-fit: contain; }
 .cat-row .desc { margin: 4px 0; }
 .cat-meta { color: var(--muted); font-size: 12px; }
