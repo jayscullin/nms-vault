@@ -265,7 +265,7 @@ function renderSidebar() {
       ${[...groups]
         .map(
           ([group, list]) => `
-        <div class="group-title">${esc(group)}</div>
+        <button class="group-title ${state.selected === `group:${group}` ? 'active' : ''}" data-select="group:${esc(group)}" title="Show all ${esc(group)} together">${esc(group)} <span class="count">${list.length > 1 ? `all ${list.length}` : ''}</span></button>
         ${list
           .map(
             (c) => `
@@ -311,18 +311,41 @@ function renderGrid(inv) {
   return `<div class="grid" style="--cols: ${inv.width}">${cells.join('')}</div>`;
 }
 
-function renderContainer(c) {
-  return `
-    <h2>${esc(c.title)}
-      ${c.nameKey ? `<button class="btn small" data-action="rename" data-name-key="${esc(c.nameKey)}" data-name="${esc(c.name ?? '')}">Rename</button>` : ''}
-    </h2>
-    <p class="sub">${esc(c.group)}${c.subtitle ? ` · ${esc(c.subtitle)}` : ''}${c.current ? ' · in use' : ''}</p>
-    ${c.inventories
-      .map(
-        (inv) => `
+const renameButton = (c) => (c.nameKey ? `<button class="btn small" data-action="rename" data-name-key="${esc(c.nameKey)}" data-name="${esc(c.name ?? '')}">Rename</button>` : '');
+
+function renderInventories(c) {
+  return c.inventories
+    .map(
+      (inv) => `
       <section class="inv" data-inv-section="${esc(inv.id)}">
         <h3>${esc(inv.label)} <span class="muted">${inv.slots.length}/${inv.valid.length} used · ${inv.width}×${inv.height}${inv.stackGroup ? ` · ${esc(inv.stackGroup)} stacks` : ''}</span>${sortTools(inv)}</h3>
         ${renderGrid(inv)}
+      </section>`,
+    )
+    .join('');
+}
+
+function renderContainer(c) {
+  return `
+    <h2>${esc(c.title)} ${renameButton(c)}</h2>
+    <p class="sub">${esc(c.group)}${c.subtitle ? ` · ${esc(c.subtitle)}` : ''}${c.current ? ' · in use' : ''}</p>
+    ${renderInventories(c)}`;
+}
+
+// Every member of a sidebar group on one page, so items can be dragged between them.
+function renderGroup(group) {
+  const members = state.view.containers.filter((c) => c.group === group);
+  const techOnly = members.every((c) => c.inventories.every((i) => i.kind === 'tech'));
+  return `
+    <h2>${esc(group)}</h2>
+    <p class="sub">${members.length} ${members.length === 1 ? 'entry' : 'entries'}. Drag items between any of them.${techOnly ? ' Technology stays in its own grid, so here you can rearrange each one but not move tech between them.' : ''}</p>
+    ${members
+      .map(
+        (c) => `
+      <section class="group-member">
+        <h2 class="member-title">${esc(c.title)} ${c.current ? '<span class="current" title="Currently in use">●</span>' : ''}<span class="muted small">${esc(c.subtitle && c.subtitle !== c.title ? c.subtitle : '')}</span> ${renameButton(c)}
+          <button class="btn small" data-select="${esc(c.id)}">Open on its own</button></h2>
+        ${renderInventories(c)}
       </section>`,
       )
       .join('')}`;
@@ -499,7 +522,12 @@ function renderEditor() {
   const c = state.view.containers.find((x) => x.id === state.selected);
   app.innerHTML = `
     ${renderSidebar()}
-    <section class="content">${state.selected === 'knowledge' ? renderKnowledge() : state.selected === 'items' || !c ? renderItems() : renderContainer(c)}</section>
+    <section class="content">${
+      state.selected === 'knowledge' ? renderKnowledge()
+        : state.selected?.startsWith('group:') ? renderGroup(state.selected.slice(6))
+        : state.selected === 'items' || !c ? renderItems()
+        : renderContainer(c)
+    }</section>
     ${renderDetails()}`;
 }
 

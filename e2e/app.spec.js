@@ -138,6 +138,22 @@ test.describe('editing', () => {
     expect(valid).toContainEqual({ X: 2, Y: 2 });
   });
 
+  test('a group page shows every member and items drag between them', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await page.locator('.group-title', { hasText: 'Storage' }).click();
+    await expect(page.locator('.content > h2')).toHaveText('Storage');
+    await expect(page.locator('.group-member')).toHaveCount(2);
+    const supplies = page.locator('.group-member').nth(0);
+    const other = page.locator('.group-member').nth(1);
+    await supplies.locator('.cell[data-x="0"][data-y="0"] .tile').dragTo(other.locator('.cell[data-x="0"][data-y="0"]'));
+    await expect(other.locator('.cell[data-x="0"][data-y="0"] .tile')).toBeVisible();
+    await reviewAndWrite(page);
+    expect(verifyFile('save.hg').ok).toBe(true);
+    const ps = readSave('save.hg').BaseContext.PlayerStateData;
+    expect(ps.Chest1Inventory.Slots.find((s) => s.Id === '^HYPERFUEL2')).toBeUndefined();
+    expect(ps.Chest2Inventory.Slots[0]).toMatchObject({ Id: '^HYPERFUEL2', Amount: 30, MaxAmount: 40 });
+  });
+
   test('undo and discard drop staged changes', async ({ page }) => {
     await openSave(page, 'save.hg');
     await cell(page, 0, 0, 0).locator('.tile').click();

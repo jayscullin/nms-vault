@@ -93,7 +93,16 @@ main { flex: 1; min-height: 0; display: flex; }
 .sidebar { width: 260px; border-right: 1px solid var(--line); overflow: auto; background: var(--panel); flex-shrink: 0; }
 .sidebar .search { padding: 12px; position: sticky; top: 0; background: var(--panel); z-index: 1; border-bottom: 1px solid var(--line); }
 .sidebar input[type=search] { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
-.group-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 14px 14px 4px; }
+.group-title {
+  display: flex; justify-content: space-between; align-items: baseline; width: 100%;
+  border: 0; background: none; text-align: left; cursor: pointer;
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 14px 14px 4px;
+}
+.group-title:hover, .group-title.active { color: var(--accent); }
+.group-title .count { letter-spacing: 0; text-transform: none; font-size: 11px; }
+.group-member { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 8px; }
+.group-member .member-title { font-size: 16px; margin: 0 0 12px; flex-wrap: wrap; }
+.group-member .member-title .current { color: var(--accent); font-size: 10px; }
 .nav-item {
   display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%;
   border: 0; background: none; text-align: left; padding: 6px 14px; border-left: 2px solid transparent;
