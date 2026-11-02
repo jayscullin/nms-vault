@@ -19,7 +19,26 @@ const state = {
   slot: null, // { inv, x, y }
   search: '',
   highlight: null, // item id to outline
+  detailsOverlayOpen: false, // the details drawer, when it floats over the content at small widths
 };
+
+// Details pane: below this width it starts collapsed and opens over the content.
+const narrow = matchMedia('(max-width: 1100px)');
+const DETAILS_PREF = 'nmsVault.detailsCollapsed';
+const pref = {
+  get: () => { try { return localStorage.getItem(DETAILS_PREF) === '1'; } catch { return false; } },
+  set: (v) => { try { localStorage.setItem(DETAILS_PREF, v ? '1' : '0'); } catch {} },
+};
+const detailsOpen = () => (narrow.matches ? state.detailsOverlayOpen : !pref.get());
+function toggleDetails(open = !detailsOpen()) {
+  if (narrow.matches) state.detailsOverlayOpen = open;
+  else pref.set(!open);
+  render();
+}
+narrow.addEventListener('change', () => {
+  state.detailsOverlayOpen = false; // auto-collapse when the window gets small
+  if (state.view) render();
+});
 
 const CURRENCY_LABELS = { Units: 'Units', Nanites: 'Nanites', Specials: 'Quicksilver' };
 const BULK = new Set(['general', 'storage']); // kinds that can receive items; matches src/inventory.js
@@ -401,28 +420,40 @@ function renderItems() {
     </table>`;
 }
 
+// The details pane, collapsible to a floating tab. At small widths it opens over the content.
 function renderDetails() {
+  const open = detailsOpen();
+  const label = open ? 'Collapse details' : 'Show details';
+  const toggle = `<button class="btn icon-btn details-toggle" data-action="details-toggle" aria-label="${label}" title="${label}" aria-expanded="${open}" aria-controls="details">${icon(open ? 'panel-close' : 'panel-open')}</button>`;
+  return `
+    ${open && narrow.matches ? '<div class="details-backdrop" data-action="details-toggle"></div>' : ''}
+    <aside class="details ${open ? 'open' : 'collapsed'}${narrow.matches ? ' overlay' : ''}" id="details" aria-label="Details">
+      ${toggle}${open ? `<div class="details-body">${detailsBody()}</div>` : state.slot ? '<span class="details-dot" aria-hidden="true"></span>' : ''}
+    </aside>`;
+}
+
+function detailsBody() {
   const inv = state.slot && findInv(state.slot.inv);
   const s = inv && slotAt(inv, state.slot.x, state.slot.y);
   if (inv && !s) {
     const canAdd = BULK.has(inv.kind);
-    return `<aside class="details">
+    return `
       <h3>Empty cell</h3>
       <dl><dt>Location</dt><dd>${esc(inv.container.title)} · ${esc(inv.label)}</dd><dt>Cell</dt><dd>${state.slot.x}, ${state.slot.y}</dd></dl>
       ${canAdd
         ? '<div class="stack"><button class="btn primary" data-action="add-item">Add item…</button></div>'
         : `<div class="note">${esc(inv.label)} inventories only hold items the game installs, so new items can’t be added here.</div>`}
-    </aside>`;
+    `;
   }
   if (!s) {
-    return `<aside class="details"><p class="muted">Select an item to edit it, or an empty cell to add one. Drag items between cells, or onto a container in the sidebar to transfer them.</p>
+    return `<p class="muted">Select an item to edit it, or an empty cell to add one. Drag items between cells, or onto a container in the sidebar to transfer them.</p>
       <div class="note">Technology can be rearranged within its own grid, recharged, repaired, or removed if it isn’t core technology. It can’t be moved to another inventory.</div>
-      <div class="note">Press <kbd>?</kbd> for keyboard shortcuts.</div></aside>`;
+      <div class="note">Press <kbd>?</kbd> for keyboard shortcuts.</div>`;
   }
   const bulk = s.type !== 'Technology';
   const meta = info(s.id);
   return `
-    <aside class="details">
+    
       ${iconUrl(s.id) ? `<img class="hero t-${esc(s.type)}" src="${iconUrl(s.id)}" alt="">` : ''}
       <h3>${esc(itemName(s.id))}</h3>
       ${meta?.subtitle ? `<div class="muted">${esc(meta.subtitle)}</div>` : ''}
@@ -451,7 +482,7 @@ function renderDetails() {
             </div>`
           : techActions(s, meta)
       }
-    </aside>`;
+    `;
 }
 
 // Technology buttons, offered only where the game data allows the edit.
@@ -1082,6 +1113,8 @@ document.addEventListener('click', async (e) => {
       return commit();
     case 'close-modal':
       return closeModal();
+    case 'details-toggle':
+      return toggleDetails();
     case 'backups':
       return openBackups(d.account);
     case 'restore':
@@ -1297,6 +1330,7 @@ document.addEventListener('keydown', (e) => {
   const reviewOpen = $('#modal-root [data-action="commit"]');
   if (e.key === 'Escape') {
     if ($('#modal-root .modal')) return closeModal();
+    if (narrow.matches && state.detailsOverlayOpen && !typing(e.target)) return toggleDetails(false);
     if (state.slot && !typing(e.target)) {
       state.slot = null;
       return render();

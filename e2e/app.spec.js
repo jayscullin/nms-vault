@@ -268,3 +268,35 @@ test.describe('account rewards', () => {
     await expect(page.locator('[data-reward-tab]')).toHaveCount(4);
   });
 });
+
+test.describe('details pane', () => {
+  test('collapses to a tab on wide screens and stays collapsed after reload', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openSave(page, 'save.hg');
+    const pane = page.locator('#details');
+    await expect(pane).toHaveClass(/open/);
+    await page.getByRole('button', { name: 'Collapse details' }).click();
+    await expect(pane).toHaveClass(/collapsed/);
+    await page.reload();
+    await openSave(page, 'save.hg');
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+    await page.getByRole('button', { name: 'Show details' }).click();
+    await expect(page.locator('#details')).toHaveClass(/open/);
+  });
+
+  test('starts collapsed at small widths and opens over the content', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await openSave(page, 'save.hg');
+    const pane = page.locator('#details');
+    await expect(pane).toHaveClass(/collapsed/);
+    await page.getByRole('button', { name: 'Show details' }).click();
+    await expect(pane).toHaveClass(/open/);
+    await expect(pane).toHaveCSS('position', 'absolute');
+    await expect(pane).toHaveCSS('bottom', '0px');
+    await page.keyboard.press('Escape');
+    await expect(pane).toHaveClass(/collapsed/);
+    await page.getByRole('button', { name: 'Show details' }).click();
+    await page.locator('.details-backdrop').click({ position: { x: 20, y: 300 } });
+    await expect(pane).toHaveClass(/collapsed/);
+  });
+});
