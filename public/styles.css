@@ -274,7 +274,7 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 .modal.wide #cat-results { overflow: auto; min-height: 0; flex: 1; }
 .cat-owned { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; min-width: 130px; }
 .cat-owned .owned { color: var(--ok); font-size: 12px; font-weight: 600; }
-.cat-owned .icon-btn { font-size: 18px; font-weight: 600; line-height: 1; width: 32px; height: 32px; }
+.cat-owned .btn { display: inline-flex; align-items: center; gap: 6px; }
 .add-targets { display: grid; gap: 6px; margin: 12px 0; max-height: 50vh; overflow: auto; }
 .add-target { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); cursor: pointer; }
 .add-target:has(input:checked) { border-color: var(--accent); }

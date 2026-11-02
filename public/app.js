@@ -643,14 +643,14 @@ function ownership(item) {
     return `
       <div class="cat-owned">
         <span class="owned">In ${where.length} place${where.length === 1 ? '' : 's'}${item.type === 'Technology' ? '' : ` · ${fmt(total)} total`}</span>
-        <button class="btn small" data-jump="${esc(first.inv.container.id)}" data-inv="${esc(first.inv.id)}" data-x="${first.slot.x}" data-y="${first.slot.y}" title="${esc(where.map((l) => `${l.inv.container.title} · ${l.inv.label}`).join('\n'))}">Show</button>
+        <button class="btn small" data-jump="${esc(first.inv.container.id)}" data-inv="${esc(first.inv.id)}" data-x="${first.slot.x}" data-y="${first.slot.y}" title="${esc(where.map((l) => `${l.inv.container.title} · ${l.inv.label}`).join('\n'))}">${icon('show', 14)}Show</button>
       </div>`;
   }
   return `
     <div class="cat-owned">
       <span class="muted small">Not in your inventories</span>
       ${item.addable
-        ? `<button class="btn icon-btn" data-action="cat-add" data-id="${esc(item.id)}" data-name="${esc(item.name)}" aria-label="Add ${esc(item.name)} to an inventory" title="Add to an inventory">+</button>`
+        ? `<button class="btn small" data-action="cat-add" data-id="${esc(item.id)}" data-name="${esc(item.name)}" aria-label="Add ${esc(item.name)} to an inventory" title="Add to an inventory">${icon('add', 14)}Add</button>`
         : ''}
     </div>`;
 }
