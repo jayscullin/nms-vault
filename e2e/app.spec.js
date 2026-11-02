@@ -10,17 +10,15 @@ import {
 test.beforeEach(() => resetFixtures());
 
 test.describe('home screen', () => {
-  test('shows the test banner, one save per slot, and the earlier save collapsed', async ({ page }) => {
+  test('shows the test banner and one save per slot, like the game', async ({ page }) => {
     await home(page);
     await expect(page.locator('#test-banner')).toBeVisible();
     const groups = page.locator('.slot-group');
     await expect(groups).toHaveCount(2);
-    await expect(groups.nth(0).locator(':scope > .slot-row')).toContainText('Aboard the Space Anomaly');
-    const earlier = groups.nth(0).locator('details.earlier');
-    await expect(earlier).toHaveCount(1);
-    await expect(earlier).not.toHaveAttribute('open', '');
-    await earlier.locator('summary').click();
-    await expect(earlier.locator('.slot-row')).toContainText('On a planet');
+    // Slot 1 holds two saves; only the newer one is listed.
+    await expect(groups.nth(0).locator('.slot-row')).toHaveCount(1);
+    await expect(groups.nth(0).locator('.slot-row')).toContainText('Aboard the Space Anomaly');
+    await expect(page.getByText('On a planet')).toHaveCount(0);
   });
 
   test('Verify proves a save round-trips without writing', async ({ page }) => {

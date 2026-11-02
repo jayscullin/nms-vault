@@ -81,12 +81,10 @@ main { flex: 1; min-height: 0; display: flex; }
 .slot-title b { font-size: 15px; margin-right: 8px; }
 .slot-title .muted { font-size: 12px; margin-top: 2px; }
 .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 4px; vertical-align: 2px; }
-.slot-row { display: grid; grid-template-columns: 130px 1fr auto auto auto; gap: 12px; align-items: center; padding: 8px 16px 8px 64px; }
+.slot-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; padding: 8px 16px 8px 64px; }
 .slot-row:last-child { padding-bottom: 14px; }
-.when-label { font-size: 12px; color: var(--muted); }
-.when-label.latest { color: var(--ok); font-weight: 600; }
 .slot-row .when { color: var(--muted); font-size: 12px; }
-.verify-result { grid-column: 1 / -1; font-size: 12px; display: grid; gap: 2px; padding-left: 112px; }
+.verify-result { grid-column: 1 / -1; font-size: 12px; display: grid; gap: 2px; }
 .empty-state { border: 1px dashed var(--line); border-radius: var(--radius); padding: 24px; color: var(--muted); }
 
 /* Editor layout */
@@ -238,10 +236,6 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .reward .check { width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); font-weight: 700; }
 .tag.ok { color: var(--ok); border-color: var(--ok); }
 .tag.pending { color: var(--accent); border-color: var(--accent); }
-.earlier { margin: 0 16px 10px 64px; }
-.earlier > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; width: max-content; }
-.earlier > summary:hover { color: var(--text); }
-.earlier .slot-row { padding-left: 0; padding-right: 0; }
 .slot-warning { margin: 4px 16px 6px 64px; border-left-color: var(--bad); background: #ff6b6b14; }
 .confirm-backdrop { z-index: 15; }
 .modal.confirm { width: min(460px, 100%); }
@@ -286,7 +280,7 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
   :root { --cell-max: 96px; }
   /* Narrow: label and details on their own lines, then the buttons in one row. */
   .slot-row { grid-template-columns: auto auto auto 1fr; padding-left: 16px; }
-  .when-label, .slot-row > div:nth-child(2) { grid-column: 1 / -1; }
-  .earlier, .slot-warning { margin-left: 16px; }
+  .slot-row > div:first-child { grid-column: 1 / -1; }
+  .slot-warning { margin-left: 16px; }
   .verify-result { padding-left: 0; }
 }
