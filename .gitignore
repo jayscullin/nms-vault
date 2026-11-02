@@ -1,3 +1,6 @@
 node_modules/
 *.nmsvault-tmp
 .DS_Store
+e2e/.tmp/
+test-results/
+playwright-report/

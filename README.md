@@ -4,10 +4,23 @@ A local, non-destructive inventory manager for No Man's Sky saves (Steam and GOG
 
 ```bash
 npm start          # opens http://localhost:5280
-npm test
 ```
 
-Needs Node 22+ and has no dependencies.
+Needs Node 22+. The app itself has no dependencies; Playwright is a development-only dependency for the browser tests.
+
+## Tests
+
+```bash
+npm test                    # unit + save-pipeline tests (no browser)
+npm run test:e2e            # browser tests of the UI
+npm run test:e2e:gamedata   # also the tests that need the game installed
+```
+
+- **Generated saves only:** the tests never touch your saves. `test/fixtures/build.js` generates small synthetic saves with real compression, key obfuscation and encrypted manifests.
+- **Every write is validated on disk:** the file must decode, round-trip byte for byte, have matching manifest sizes, and contain exactly the intended change.
+- **On GitHub:** each push runs everything except the game-data tests, which need the installed game.
+
+First run of the browser tests: `npm install && npx playwright install chromium`.
 
 ## What it does
 

@@ -1,0 +1,61 @@
+// Browser tests that need the installed game's data (names, icons, adding items,
+// knowledge, rewards). Run with E2E_GAMEDATA=1 on a machine with the game installed.
+
+import { test, expect } from '@playwright/test';
+import { USE_GAMEDATA } from './env.js';
+import { resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite } from './helpers.js';
+
+test.skip(!USE_GAMEDATA, 'needs the game installed (E2E_GAMEDATA=1)');
+test.beforeEach(() => resetFixtures());
+
+test('items show real names, and hovering shows the description', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  const tile = cell(page, 0, 0, 0).locator('.tile');
+  await expect(tile).toHaveAttribute('aria-label', /^Carbon /);
+  await tile.hover();
+  await expect(page.locator('#item-tip')).toContainText('Carbon');
+});
+
+test('add an item from the catalogue to an empty cell', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await cell(page, 0, 5, 3).click();
+  await page.locator('[data-action="add-item"]').click();
+  await page.locator('#add-search').fill('Ferrite Dust');
+  const row = page.locator('.add-row').filter({ hasText: 'Ferrite Dust' }).first();
+  await row.locator('input[type="number"]').fill('123');
+  await row.locator('[data-action="add-confirm"]').click();
+  await expect(cell(page, 0, 5, 3).locator('.tile')).toBeVisible();
+  await reviewAndWrite(page);
+  expect(verifyFile('save.hg').ok).toBe(true);
+  const added = exosuitSlots(readSave('save.hg')).find((s) => s.Index.X === 5 && s.Index.Y === 3);
+  expect([added.Id, added.Amount, added.MaxAmount]).toEqual(['^LAND1', 123, 9999]);
+});
+
+test('learn all Korvax words', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await page.locator('[data-select="knowledge"]').click();
+  await page.locator('[data-action="learn-words"][data-race="2"]').click();
+  await expect(page.locator('.word-card').filter({ hasText: 'Korvax' })).toContainText('All known');
+  await reviewAndWrite(page);
+  expect(verifyFile('save.hg').ok).toBe(true);
+  const groups = readSave('save.hg').BaseContext.PlayerStateData.KnownWordGroups;
+  expect(groups.filter((g) => g.Group.startsWith('^EXP_') && g.Races[2]).length).toBeGreaterThan(100);
+});
+
+test('unlock a title in the account file', async ({ page }) => {
+  await home(page);
+  await page.locator('[data-file="accountdata.hg"]').click();
+  await page.locator('[data-reward-tab="titles"]').click();
+  await page.locator('.reward:not(:disabled)').first().click();
+  await page.locator('[data-action="unlock-selected"]').click();
+  await expect(page.locator('.badge')).toHaveText('1');
+  await reviewAndWrite(page);
+  expect(verifyFile('accountdata.hg').ok).toBe(true);
+});
+
+test('the item catalogue works without a save', async ({ page }) => {
+  await home(page);
+  await page.locator('[data-action="catalogue"]').click();
+  await page.locator('#search').fill('pulse engine');
+  await expect(page.locator('.cat-row').first()).toContainText('Pulse Engine');
+});

@@ -526,10 +526,18 @@ export function review(s) {
   const bytes = encodeSave(text, { compressed: s.compressed });
   add('Compressed data decodes exactly', decodeSave(bytes).text === text, `${(bytes.length / 1024).toFixed(0)} KiB`);
 
-  const ratio = text.length / s.text.length;
-  // The account file is small, so unlocking many rewards grows it more in relative terms.
-  const maxGrowth = s.kind === 'account' ? 1.3 : 1.05;
-  add('Size is plausible', ratio > 0.95 && ratio < maxGrowth, `${((ratio - 1) * 100).toFixed(3)}% size change`);
+  // The save must grow or shrink by exactly what the edited regions did: compact JSON
+  // is compositional, so any other difference means something else changed.
+  const regions = [...new Map(allowed.map((p) => [p.join('\u0000'), p])).values()].filter(
+    (p, _, all) => !all.some((q) => q !== p && q.length < p.length && q.every((k, i) => String(k) === String(p[i]))),
+  );
+  const sized = (tree, p) => {
+    const v = get(tree, p);
+    return v === undefined ? 0 : stringify(v).length;
+  };
+  const expected = regions.reduce((n, p) => n + sized(s.work, p) - sized(s.origTree, p), 0);
+  const actual = readable.length - s.readable.length;
+  add('Size change matches the edits', actual === expected, `${actual >= 0 ? '+' : ''}${actual.toLocaleString()} bytes${actual === expected ? '' : `, expected ${expected.toLocaleString()}`}`);
 
   let metaBytes = null;
   const meta = readMeta(s.metaPath, s.file, s.text.length, s.originalSize);

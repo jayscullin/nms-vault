@@ -11,6 +11,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js --no-open",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "test:e2e": "playwright test",
+    "test:e2e:gamedata": "E2E_GAMEDATA=1 playwright test",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
   }
 }
