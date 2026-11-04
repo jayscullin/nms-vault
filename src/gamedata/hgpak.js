@@ -10,6 +10,7 @@ import zlib from 'node:zlib';
 import { lz4DecompressBlock } from '../codec.js';
 
 export const CHUNK = 0x20000;
+const ZSTD_MAGIC = 0xfd2fb528;
 
 export class HgPak {
   constructor(file) {
@@ -51,7 +52,11 @@ export class HgPak {
     const { pos, size } = this.chunks[i];
     const raw = this.#read(pos, size);
     if (!this.compressed || size === CHUNK) out = raw;
-    else if (raw.readUInt32LE(0) === 0xfd2fb528) out = zlib.zstdDecompressSync(raw);
+    else if (raw.readUInt32LE(0) === ZSTD_MAGIC) {
+      // Windows and Linux archives use zstd; only newer Node versions can read it.
+      if (!zlib.zstdDecompressSync) throw new Error(`Reading these game files needs Node 22.15 or newer (this is ${process.version})`);
+      out = zlib.zstdDecompressSync(raw);
+    }
     else out = lz4DecompressBlock(raw, CHUNK);
     if (this.cache.size > 64) this.cache.clear();
     this.cache.set(i, out);

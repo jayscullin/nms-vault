@@ -14,6 +14,9 @@ import { applyRewardOp } from '../src/rewards.js';
 import { applyOp, catalog, indexCatalog, shipLock, freighterLock, SHIP_KINDS, FREIGHTER_KINDS, OpError } from '../src/inventory.js';
 import { samplerTexture, packModel, loadModel, readCustomisationGroups, readDescriptor } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
+import fs from 'node:fs';
+import os from 'node:os';
+import { HgPak, CHUNK } from '../src/gamedata/hgpak.js';
 import { parseLibraryFolders } from '../src/gamedata/itemdb.js';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
@@ -287,6 +290,36 @@ test('technology installs only where it fits, once, with the game’s charge', (
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'SHIPSHIELD' }), /already installed/);
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'LASER' }), /can't be installed/);
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 1, y: 0, id: 'SHIP_TELEPORT' }), /occupied/);
+});
+
+test('archives read with zstd chunks (Windows, Linux), lz4 chunks (macOS) and stored chunks', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nms-vault-pak-'));
+  const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
+  const write = (encode) => {
+    const names = Buffer.from('a.mbin\nb.mbin\n');
+    const a = crypto.randomBytes(CHUNK + 5000); // incompressible: its first chunk is stored as is
+    const b = Buffer.from('hello world '.repeat(50));
+    const stream = Buffer.concat([names, a, b]);
+    const pieces = [];
+    for (let i = 0; i < stream.length; i += CHUNK) pieces.push(encode(stream.subarray(i, i + CHUNK)));
+    const headerSize = 48 + 3 * 32 + pieces.length * 8;
+    const dataOffset = Math.ceil(headerSize / 16) * 16;
+    // Entry offsets count from the start of the file, as if the data were uncompressed.
+    const entry = (offset, size) => Buffer.concat([Buffer.alloc(16), u64(dataOffset + offset), u64(size)]);
+    const entries = [entry(0, names.length), entry(names.length, a.length), entry(names.length + a.length, b.length)];
+    const header = Buffer.concat([Buffer.from('HGPAK\0\0\0'), u64(2), u64(entries.length), u64(pieces.length), u64(1), u64(dataOffset), ...entries, ...pieces.map((p) => u64(p.length))]);
+    const body = [Buffer.alloc(dataOffset - header.length)];
+    for (const p of pieces) body.push(p, Buffer.alloc((16 - (p.length % 16)) % 16));
+    const file = path.join(dir, 'test.pak');
+    fs.writeFileSync(file, Buffer.concat([header, ...body]));
+    const pak = new HgPak(file);
+    assert.ok(pak.read('a.mbin').equals(a));
+    assert.ok(pak.read('B.MBIN').equals(b));
+    pak.close();
+  };
+  write((c) => (c.length === CHUNK ? c : zlib.zstdCompressSync(c)));
+  write((c) => (c.length === CHUNK ? c : lz4CompressBlock(c)));
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('Steam library lists read Windows and Linux paths', () => {
