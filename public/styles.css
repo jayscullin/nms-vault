@@ -440,3 +440,15 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
   .currency { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
   .currency input { text-align: right; font-size: 18px; }
 }
+/* Change type: the types beside a preview of the chosen one. */
+.type-picker { display: grid; grid-template-columns: minmax(170px, 220px) 1fr; gap: 14px; min-height: 0; margin-top: 12px; }
+.type-picker .add-targets { margin: 0; align-content: start; }
+.add-target small { margin-left: 6px; }
+.add-target > span:has(small) { flex-direction: row; align-items: baseline; }
+.type-preview { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.type-preview .model-stage { height: min(46vh, 400px); }
+@media (max-width: 640px) {
+  .type-picker { grid-template-columns: 1fr; }
+  .type-preview { grid-row: 1; }
+  .type-preview .model-stage { height: 30vh; }
+}

@@ -16,6 +16,7 @@ const UNLOCKABLE = new Set(['general', 'tech']);
 const SHIP_TYPES = [
   [/WRACER/, 'Starborn Runner'],
   [/BIOPARTS/, 'Living Ship'],
+  [/S-CLASS/, 'Exotic'],
   [/SAILSHIP/, 'Solar'],
   [/SENTINELSHIP/, 'Interceptor'],
   [/DROPSHIPS/, 'Hauler'],
@@ -25,6 +26,25 @@ const SHIP_TYPES = [
   [/ROYAL/, 'Exotic'],
   [/CORVETTE/, 'Corvette'],
 ];
+// Ship and freighter types that can be swapped: the game's plain procedural models,
+// which build themselves from any seed. Living ships and corvettes carry their own
+// parts and technology, so they are never a source or a target.
+const SPACECRAFT = 'MODELS/COMMON/SPACECRAFT';
+export const SHIP_KINDS = [
+  ['Fighter', `${SPACECRAFT}/FIGHTERS/FIGHTER_PROC.SCENE.MBIN`],
+  ['Hauler', `${SPACECRAFT}/DROPSHIPS/DROPSHIP_PROC.SCENE.MBIN`],
+  ['Shuttle', `${SPACECRAFT}/SHUTTLE/SHUTTLE_PROC.SCENE.MBIN`],
+  ['Explorer', `${SPACECRAFT}/SCIENTIFIC/SCIENTIFIC_PROC.SCENE.MBIN`],
+  ['Exotic', `${SPACECRAFT}/S-CLASS/S-CLASS_PROC.SCENE.MBIN`],
+  ['Solar', `${SPACECRAFT}/SAILSHIP/SAILSHIP_PROC.SCENE.MBIN`],
+  ['Interceptor', `${SPACECRAFT}/SENTINELSHIP/SENTINELSHIP_PROC.SCENE.MBIN`],
+].map(([label, scene]) => ({ label, scene }));
+export const FREIGHTER_KINDS = [
+  ['Freighter', `${SPACECRAFT}/INDUSTRIAL/FREIGHTER_PROC.SCENE.MBIN`],
+  ['Capital freighter', `${SPACECRAFT}/INDUSTRIAL/CAPITALFREIGHTER_PROC.SCENE.MBIN`],
+].map(([label, scene]) => ({ label, scene }));
+const REWARD_SEED_MAX = 0xffn; // hand-set seeds such as 0x0 or 0x6 mark reward ships
+
 const VEHICLES = ['Roamer', 'Nomad', 'Colossus', 'Pilgrim', 'Exocraft 5', 'Nautilon', 'Minotaur'];
 const SPECIAL = [
   ['CookingIngredientsInventory', 'Ingredient Storage'],
@@ -58,7 +78,7 @@ function displayName(raw) {
 // CharacterCustomisationData entry for a ship slot: slots 0-5 use entries 3-8 and
 // slots 6-11 use 17-22 (inferred from saves; a wrong match is caught when the
 // recorded parts don't fit the ship's model).
-const shipCustomisationIndex = (slot) => (slot < 6 ? 3 + slot : 17 + slot - 6);
+export const shipCustomisationIndex = (slot) => (slot < 6 ? 3 + slot : 17 + slot - 6);
 
 // Customisation groups the game recorded for an object (set at the appearance modifier).
 function customParts(ps, index) {
@@ -70,8 +90,8 @@ function customParts(ps, index) {
 export function catalog(tree) {
   const ps = get(tree, PS);
   const containers = [];
-  const container = (group, title, { namePath, current = false, model } = {}) => {
-    const c = { id: `${group}:${containers.length}`, group, title, namePath, current, model, inventories: [] };
+  const container = (group, title, { namePath, current = false, model, ship, freighter = false } = {}) => {
+    const c = { id: `${group}:${containers.length}`, group, title, namePath, current, model, ship, freighter, inventories: [] };
     containers.push(c);
     return c;
   };
@@ -95,6 +115,7 @@ export function catalog(tree) {
       namePath: [...base, 'Name'],
       current: num(ps.PrimaryShip) === i,
       model: { scene: toDisplay(file), parts: customParts(ps, shipCustomisationIndex(i)) },
+      ship: i,
     });
     c.subtitle = shipType(file);
     inv(c, 'General', [...base, 'Inventory'], 'general');
@@ -112,7 +133,8 @@ export function catalog(tree) {
     inv(c, 'Technology', [...PS, 'Multitools', i, 'Store'], 'tech');
   });
 
-  const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? { scene: toDisplay(ps.CurrentFreighter.Filename), parts: [] } : undefined });
+  const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? { scene: toDisplay(ps.CurrentFreighter.Filename), parts: [] } : undefined, freighter: Boolean(ps.CurrentFreighter?.Filename) });
+  fr.subtitle = FREIGHTER_KINDS.find((k) => k.scene === ps.CurrentFreighter?.Filename)?.label;
   inv(fr, 'General', [...PS, 'FreighterInventory'], 'general');
   inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'legacy');
   inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech');
@@ -151,6 +173,37 @@ export function indexCatalog(containers) {
   return { inventories, names };
 }
 
+// Why a ship's type can't be changed and it can't be deleted, or null if it can.
+export function shipLock(tree, slot, policy) {
+  const res = get(tree, [...PS, 'ShipOwnership', slot])?.Resource;
+  if (!res?.Filename) return 'This ship slot is empty';
+  if (!policy.sceneExists(res.Filename)) return 'Needs the game’s data to confirm this ship';
+  if (!SHIP_KINDS.some((k) => k.scene === res.Filename)) return 'Reward, Living and Corvette ships have their own fixed parts, so they are left alone';
+  const [hasSeed, seed] = res.Seed ?? [];
+  if (!hasSeed || BigInt(seed) <= REWARD_SEED_MAX || policy.rewardSeed(seed)) return 'Reward ships are tied to your account, so they are left alone';
+  return null;
+}
+
+export function freighterLock(tree, policy) {
+  const file = get(tree, [...PS, 'CurrentFreighter', 'Filename']);
+  if (!file) return 'No freighter in this save';
+  if (!policy.sceneExists(file)) return 'Needs the game’s data to confirm this freighter';
+  if (!FREIGHTER_KINDS.some((k) => k.scene === file)) return 'Special freighters have their own fixed parts, so they are left alone';
+  return null;
+}
+
+// The save's own record of an unused customisation entry replaces a stale one.
+function clearCustomisation(ps, slot) {
+  const index = shipCustomisationIndex(slot);
+  const entry = ps.CharacterCustomisationData?.[index];
+  const used = (e) => e?.CustomData?.DescriptorGroups?.length || e?.CustomData?.Colours?.length || e?.CustomData?.TextureOptions?.length;
+  if (!used(entry)) return null;
+  const blank = ps.CharacterCustomisationData.find((e) => e?.CustomData && !used(e)) ?? ps.ArchivedShipOwnership?.map((a) => a.Customisation).find((e) => e?.CustomData && !used(e));
+  if (!blank) throw new OpError('This save has no empty customisation record to copy');
+  ps.CharacterCustomisationData[index] = parse(stringify(blank));
+  return [...PS, 'CharacterCustomisationData', index];
+}
+
 const cellKey = (x, y) => `${x},${y}`;
 
 export function inventoryView(tree, info) {
@@ -187,6 +240,8 @@ export function view(tree, containers) {
       subtitle: c.subtitle,
       current: c.current,
       model: c.model,
+      ship: c.ship,
+      freighter: c.freighter,
       nameKey: c.namePath?.join('/'),
       name: c.namePath ? displayName(get(tree, c.namePath)) : undefined,
       inventories: c.inventories.map((i) => inventoryView(tree, i)),
@@ -237,6 +292,57 @@ function amountInt(value, min, max, what) {
 export function applyOp(tree, cat, stacks, op) {
   const warnings = [];
   switch (op?.op) {
+    case 'setShipType': {
+      const ps = get(tree, PS);
+      const slot = Number(op.ship);
+      const lock = shipLock(tree, slot, stacks);
+      if (lock) throw new OpError(lock);
+      if (!SHIP_KINDS.some((k) => k.scene === op.scene) || !stacks.sceneExists(op.scene)) throw new OpError('Unknown ship type');
+      const res = ps.ShipOwnership[slot].Resource;
+      if (res.Filename === op.scene) throw new OpError('This ship is already that type');
+      const touched = [[...PS, 'ShipOwnership', slot, 'Resource', 'Filename']];
+      // Older saves mirror the ship in use here.
+      if (num(ps.PrimaryShip) === slot && ps.CurrentShip?.Filename === res.Filename) {
+        ps.CurrentShip.Filename = op.scene;
+        touched.push([...PS, 'CurrentShip', 'Filename']);
+      }
+      res.Filename = op.scene;
+      // Recorded parts belong to the old type.
+      const custom = clearCustomisation(ps, slot);
+      if (custom) touched.push(custom);
+      return { touched, warnings };
+    }
+    case 'setFreighterType': {
+      const lock = freighterLock(tree, stacks);
+      if (lock) throw new OpError(lock);
+      if (!FREIGHTER_KINDS.some((k) => k.scene === op.scene) || !stacks.sceneExists(op.scene)) throw new OpError('Unknown freighter type');
+      const ps = get(tree, PS);
+      if (ps.CurrentFreighter.Filename === op.scene) throw new OpError('The freighter is already that type');
+      ps.CurrentFreighter.Filename = op.scene;
+      return { touched: [[...PS, 'CurrentFreighter', 'Filename']], warnings };
+    }
+    case 'deleteShip': {
+      const ps = get(tree, PS);
+      const slot = Number(op.ship);
+      const lock = shipLock(tree, slot, stacks);
+      if (lock) throw new OpError(lock);
+      if (num(ps.PrimaryShip) === slot) throw new OpError('Switch to another ship in game before deleting this one');
+      // An empty slot takes the shape the game itself wrote elsewhere in this save.
+      const empty = (o) => o && !o.Resource?.Filename && o.Inventory;
+      const blank = ps.ShipOwnership.find(empty) ?? ps.ArchivedShipOwnership?.map((a) => a.Ownership).find(empty);
+      if (!blank) throw new OpError('This save has no empty ship record to copy');
+      const same = (a, b) => Object.keys(a).sort().join() === Object.keys(b).sort().join();
+      if (!same(blank, ps.ShipOwnership[slot])) throw new OpError('This save’s empty ship records have a different layout, so the ship can’t be deleted safely');
+      ps.ShipOwnership[slot] = parse(stringify(blank));
+      const touched = [[...PS, 'ShipOwnership', slot]];
+      if (Array.isArray(ps.ShipUsesLegacyColours) && slot < ps.ShipUsesLegacyColours.length && ps.ShipUsesLegacyColours[slot] !== false) {
+        ps.ShipUsesLegacyColours[slot] = false;
+        touched.push([...PS, 'ShipUsesLegacyColours', slot]);
+      }
+      const custom = clearCustomisation(ps, slot);
+      if (custom) touched.push(custom);
+      return { touched, warnings };
+    }
     case 'add': {
       const loc = locate(tree, cat, op);
       if (loc.slot) throw new OpError('That cell is already occupied');

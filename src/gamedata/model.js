@@ -147,13 +147,14 @@ export function readDescriptor(buf) {
 // indices in model space, plus the diffuse texture path per material.
 // A procedural model needs `parts`: the descriptor ids the game itself recorded
 // for this object (customised ships). Without them it is refused, and so is any
-// choice in the model that the recorded parts don't settle.
-export function loadModel(archives, scenePath, { parts } = {}) {
+// choice in the model that the recorded parts don't settle. `example` instead takes
+// the first option of each choice: a representative of the type, not anyone's ship.
+export function loadModel(archives, scenePath, { parts, example = false } = {}) {
   const scene = norm(scenePath);
   if (!/^models\/[a-z0-9_\-/]+\.scene\.mbin$/.test(scene)) throw new ModelError('Not a model path');
   if (!archives.find(scene)) throw new ModelError('Model not found in game data');
   const chosen = new Set((parts ?? []).map((x) => String(x).toUpperCase()));
-  if (!chosen.size && archives.find(scene.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
+  if (!example && !chosen.size && archives.find(scene.replace(/\.scene\.mbin$/, '.descriptor.mbin'))) {
     throw new ModelError('Procedurally generated model');
   }
   const allNames = archives.paks.flatMap((p) => [...p.files.keys()]);
@@ -185,7 +186,7 @@ export function loadModel(archives, scenePath, { parts } = {}) {
   const walkScene = (name, parent, ctx, depth) => {
     if (depth > 8) throw new ModelError('Model references nest too deeply');
     const s = loadScene(name);
-    if (s.descriptor && !chosen.size) throw new ModelError('Procedurally generated model');
+    if (!example && s.descriptor && !chosen.size) throw new ModelError('Procedurally generated model');
     const here = s.descriptor
       ? { ids: new Set([...ctx.ids, ...s.descriptor.ids]), types: new Set([...ctx.types, ...s.descriptor.types]), names: new Map([...ctx.names, ...s.descriptor.names]) }
       : ctx;
@@ -210,6 +211,8 @@ export function loadModel(archives, scenePath, { parts } = {}) {
       if (ctx.ids.has(id)) {
         const type = [...ctx.types].filter((t) => id.startsWith(t)).sort((a, b) => b.length - a.length)[0];
         options.set(type, [...(options.get(type) ?? []), c]);
+        // An example takes the first option of each choice that isn't decal-only.
+        if (example && !decalOnly(c) && !options.get(type).slice(0, -1).some((o) => !decalOnly(o))) chosen.add(id);
         if (!chosen.has(id)) continue;
         used.add(id);
       }

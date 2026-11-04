@@ -11,6 +11,7 @@ import { subsetOf, anchorsOf, encodePng, decodeDds } from '../src/gamedata/dds.j
 import { resolveItem } from '../src/gamedata/itemdb.js';
 import { readStackBases, ruleLimit } from '../src/gamedata/stacks.js';
 import { applyRewardOp } from '../src/rewards.js';
+import { applyOp, catalog, indexCatalog, shipLock, freighterLock, SHIP_KINDS, FREIGHTER_KINDS, OpError } from '../src/inventory.js';
 import { samplerTexture, packModel, loadModel, readCustomisationGroups, readDescriptor } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
 
@@ -186,6 +187,76 @@ test('customisation groups map a group id to the descriptor ids it switches on',
   assert.deepEqual(groups.get('FIGHT_WINGBA'), ['_SUBWINGS_A', '_WINGS_B']);
   assert.equal(groups.size, 1);
 });
+
+const FIGHTER = 'MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN';
+const inv = () => ({ Slots: [], ValidSlotIndices: [], Width: 1, Height: 1 });
+const ship = (Filename, seed, Name = '') => ({ Name, Resource: { Filename, Seed: [Boolean(Filename), seed] }, Inventory: inv(), Inventory_Cargo: inv(), Inventory_TechOnly: inv() });
+const custom = (groups) => ({ SelectedPreset: '^', CustomData: { DescriptorGroups: groups, Colours: [], TextureOptions: [] } });
+const fleet = () => ({
+  BaseContext: {
+    PlayerStateData: {
+      PrimaryShip: 0,
+      ShipOwnership: [ship(FIGHTER, '0xAAAAAAAAAAAA'), ship(FIGHTER, '0xBBBBBBBBBBBB', 'Keep'), ship(FIGHTER, '0x6'), ship('MODELS/COMMON/SPACECRAFT/FIGHTERS/WRACER.SCENE.MBIN', '0xCCCCCCCCCCCC'), ship('', '0x0')],
+      ShipUsesLegacyColours: [false, true, false, false, false],
+      CharacterCustomisationData: Array.from({ length: 26 }, (_, i) => custom(i === 4 ? ['^FIGHT_COCKD'] : [])),
+      CurrentFreighter: { Filename: FREIGHTER_KINDS[1].scene, Seed: [true, '0x1234'] },
+    },
+  },
+});
+const shipPolicy = { sceneExists: () => true, rewardSeed: (s) => s === '0xDDDDDDDDDDDD' };
+const shipOp = (tree, op) => applyOp(tree, indexCatalog(catalog(tree)), shipPolicy, op);
+const PS_OF = (t) => t.BaseContext.PlayerStateData;
+
+test('reward, fixed and empty ships are locked; standard ones are not', () => {
+  const t = fleet();
+  assert.equal(shipLock(t, 0, shipPolicy), null);
+  assert.match(shipLock(t, 2, shipPolicy), /Reward/);
+  assert.match(shipLock(t, 3, shipPolicy), /fixed parts/);
+  assert.match(shipLock(t, 4, shipPolicy), /empty/);
+  PS_OF(t).ShipOwnership[0].Resource.Seed[1] = '0xDDDDDDDDDDDD';
+  assert.match(shipLock(t, 0, shipPolicy), /Reward/);
+  assert.match(shipLock(t, 1, { ...shipPolicy, sceneExists: () => false }), /game’s data/);
+});
+
+test('changing a ship type keeps its seed and clears customisation from the old type', () => {
+  const t = fleet();
+  const { touched } = shipOp(t, { op: 'setShipType', ship: 1, scene: SHIP_KINDS[1].scene });
+  const s = PS_OF(t).ShipOwnership[1];
+  assert.equal(s.Resource.Filename, SHIP_KINDS[1].scene);
+  assert.equal(s.Resource.Seed[1], '0xBBBBBBBBBBBB');
+  assert.deepEqual(PS_OF(t).CharacterCustomisationData[4].CustomData.DescriptorGroups, []);
+  assert.ok(touched.some((p) => p.includes('CharacterCustomisationData')));
+  assert.throws(() => shipOp(t, { op: 'setShipType', ship: 1, scene: SHIP_KINDS[1].scene }), /already/);
+  assert.throws(() => shipOp(t, { op: 'setShipType', ship: 1, scene: 'MODELS/EVIL.SCENE.MBIN' }), OpError);
+  assert.throws(() => shipOp(t, { op: 'setShipType', ship: 3, scene: FIGHTER }), /fixed parts/);
+});
+
+test('deleting a ship copies the save’s own empty record and refuses the ship in use', () => {
+  const t = fleet();
+  assert.throws(() => shipOp(t, { op: 'deleteShip', ship: 0 }), /Switch to another ship/);
+  assert.throws(() => shipOp(t, { op: 'deleteShip', ship: 2 }), /Reward/);
+  shipOp(t, { op: 'deleteShip', ship: 1 });
+  const ps = PS_OF(t);
+  assert.equal(ps.ShipOwnership[1].Resource.Filename, '');
+  assert.equal(ps.ShipOwnership[1].Name, '');
+  assert.equal(ps.ShipUsesLegacyColours[1], false);
+  assert.deepEqual(ps.CharacterCustomisationData[4].CustomData.DescriptorGroups, []);
+  assert.equal(catalog(t).filter((c) => c.group === 'Starships').length, 3);
+  const none = fleet();
+  PS_OF(none).ShipOwnership[4] = ship(FIGHTER, '0xEEEEEEEEEEEE');
+  assert.throws(() => shipOp(none, { op: 'deleteShip', ship: 1 }), /no empty ship record/);
+});
+
+test('the freighter type only swaps between the two standard freighters', () => {
+  const t = fleet();
+  shipOp(t, { op: 'setFreighterType', scene: FREIGHTER_KINDS[0].scene });
+  assert.equal(PS_OF(t).CurrentFreighter.Filename, FREIGHTER_KINDS[0].scene);
+  assert.equal(PS_OF(t).CurrentFreighter.Seed[1], '0x1234');
+  assert.throws(() => shipOp(t, { op: 'setFreighterType', scene: FIGHTER }), /Unknown freighter/);
+  PS_OF(t).CurrentFreighter.Filename = 'MODELS/COMMON/SPACECRAFT/INDUSTRIAL/PIRATEFREIGHTER.SCENE.MBIN';
+  assert.match(freighterLock(t, shipPolicy), /fixed parts/);
+});
+
 test('descriptor options match scenes by name, even when the id is shorter', () => {
   const buf = Buffer.from(['', '_SHIP_', '_SHIP_ROY', '_Ship_Royal', '_SHIP_SQU', '_Ship_Squid', '_WINGS_', '_WINGS_A', '_Wings_A', ''].join('\0'), 'latin1');
   const d = readDescriptor(buf);

@@ -319,6 +319,62 @@ const modelButton = (c) =>
       : `<button class="btn small with-icon" disabled title="${esc(c.model.reason)}" aria-label="3D view unavailable: ${esc(c.model.reason)}">${icon('model', 14)}3D</button>`
     : '';
 
+// Change type and delete, for ships and the freighter. Disabled with the reason where the edit isn't safe.
+function manageButtons(c) {
+  if (!c.manage) return '';
+  const lock = c.manage.lock;
+  const off = (why) => (why ? `disabled title="${esc(why)}" aria-label="Unavailable: ${esc(why)}"` : '');
+  const type = `<button class="btn small with-icon" data-action="change-type" data-container="${esc(c.id)}" ${lock ? off(lock) : 'title="Change which type of ship this is"'}>${icon('type', 14)}Type</button>`;
+  if (c.freighter) return type;
+  const why = lock ?? (c.current ? 'This is the ship in use. Switch to another ship in game before deleting it.' : '');
+  return `${type}<button class="btn small danger with-icon" data-action="delete-ship" data-container="${esc(c.id)}" ${why ? off(why) : 'title="Delete this ship"'}>${icon('trash', 14)}Delete</button>`;
+}
+
+function openTypeChange(id) {
+  const c = state.view.containers.find((x) => x.id === id);
+  modal(`
+    <h2 class="with-icon">${icon('type', 20)}Change type</h2>
+    <p class="muted">${esc(c.title)} keeps its seed, inventory and technology, and the game rebuilds its look from the seed.${c.freighter ? '' : ' Any appearance customisation is cleared, because those parts belong to the old type.'}</p>
+    <div class="type-picker">
+      <div class="add-targets">${c.manage.kinds
+        .map((k) => {
+          const now = k.scene === c.model?.scene;
+          return `<label class="add-target"><input type="radio" name="kind" value="${esc(k.scene)}" data-current="${now ? 1 : ''}" ${now ? 'checked' : ''}><span>${esc(k.label)}${now ? '<small class="muted">current</small>' : ''}</span></label>`;
+        })
+        .join('')}</div>
+      <figure class="type-preview">
+        <div class="model-stage"><div class="model-status muted">Loading…</div></div>
+        <figcaption class="muted small" id="type-caption"></figcaption>
+      </figure>
+    </div>
+    <footer><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="type-confirm" data-container="${esc(c.id)}">Change type</button></footer>`, { wide: true });
+  previewType();
+}
+
+// Shows an example of the chosen type. Each one gets a fresh canvas, since releasing a
+// model gives up its canvas; a slower earlier load is dropped when it finally arrives.
+let previewToken = 0;
+async function previewType() {
+  const radio = $('#modal-root input[name="kind"]:checked');
+  const stage = $('#modal-root .type-preview .model-stage');
+  if (!radio || !stage) return;
+  const token = ++previewToken;
+  releaseModal?.();
+  releaseModal = null;
+  stage.innerHTML = '<canvas aria-hidden="true"></canvas><div class="model-status muted">Loading…</div>';
+  const label = radio.closest('label').querySelector('span').firstChild.textContent;
+  $('#type-caption').textContent = `An example ${label}, not this exact ship: the real parts and colours come from its seed in game.`;
+  try {
+    const { release } = await showModel(stage.querySelector('canvas'), radio.value, [], { example: true });
+    if (token !== previewToken || !stage.isConnected) return release();
+    releaseModal = release;
+    stage.querySelector('.model-status').remove();
+    stage.querySelector('canvas').classList.add('ready');
+  } catch (e) {
+    if (token === previewToken && stage.isConnected) stage.querySelector('.model-status').textContent = e.message;
+  }
+}
+
 const renameButton = (c) => (c.nameKey ? `<button class="btn small" data-action="rename" data-name-key="${esc(c.nameKey)}" data-name="${esc(c.name ?? '')}">Rename</button>` : '');
 
 function renderInventories(c) {
@@ -335,7 +391,7 @@ function renderInventories(c) {
 
 function renderContainer(c) {
   return `
-    <h2>${esc(c.title)} ${renameButton(c)} ${modelButton(c)}</h2>
+    <h2>${esc(c.title)} ${renameButton(c)} ${modelButton(c)} ${manageButtons(c)}</h2>
     <p class="sub">${esc(c.group)}${c.subtitle ? ` · ${esc(c.subtitle)}` : ''}${c.current ? ' · in use' : ''}</p>
     ${renderInventories(c)}`;
 }
@@ -929,6 +985,8 @@ const checkList = (checks) => `
     .map((c) => `<li><span class="${c.ok ? 'ok' : 'bad'}">${c.ok ? '✓' : '✗'}</span><span>${esc(c.name)}</span>${c.detail ? `<small>${esc(c.detail)}</small>` : ''}</li>`)
     .join('')}</ul>`;
 
+const typeLabel = (scene) => state.view.containers.flatMap((c) => c.manage?.kinds ?? []).find((k) => k.scene === scene)?.label ?? scene;
+
 function describeOp(op) {
   const at = (r) => {
     const inv = findInv(r.inv);
@@ -940,6 +998,9 @@ function describeOp(op) {
     case 'move': return `Move item from ${at(op.from)} to ${at(op.to)}`;
     case 'setCurrency': return `Set ${CURRENCY_LABELS[op.field]} to ${fmt(op.value)}`;
     case 'rename': return `Rename to “${op.name}”`;
+    case 'setShipType': return `Change ship type to ${typeLabel(op.scene)}`;
+    case 'setFreighterType': return `Change freighter type to ${typeLabel(op.scene)}`;
+    case 'deleteShip': return 'Delete a ship';
     case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'sortInventory': return `Sort ${at(op)} by ${op.by}${op.combine ? ', combining stacks' : ''}`;
@@ -1157,6 +1218,24 @@ document.addEventListener('click', async (e) => {
       return run(() => openCatalogueAdd(d.id, d.name));
     case 'cat-add-confirm':
       return confirmCatalogueAdd(d.id);
+    case 'change-type':
+      return openTypeChange(d.container);
+    case 'type-confirm': {
+      const c = state.view.containers.find((x) => x.id === d.container);
+      const chosen = $('#modal-root input[name="kind"]:checked');
+      const scene = chosen?.value;
+      if (!scene || chosen.dataset.current) return toast('Choose a different type first', true);
+      closeModal();
+      return applyOp(c.freighter ? { op: 'setFreighterType', scene } : { op: 'setShipType', ship: c.ship, scene });
+    }
+    case 'delete-ship': {
+      const c = state.view.containers.find((x) => x.id === d.container);
+      const count = c.inventories.reduce((n, i) => n + i.slots.length, 0);
+      if (!(await ask(`Delete ${c.title}? It and the ${count} item${count === 1 ? '' : 's'} and technology in it are removed from this save once written (a backup is kept).`, { ok: 'Delete', danger: true }))) return;
+      state.selected = 'group:Starships';
+      state.slot = null;
+      return applyOp({ op: 'deleteShip', ship: c.ship });
+    }
     case 'slot-menu':
       return run(() => openSlotMenu(d.account, d.file));
     case 'slot-op':
@@ -1520,3 +1599,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 loadAccounts();
+
+document.addEventListener('change', (e) => {
+  if (e.target.matches?.('input[name="kind"]')) previewType();
+});

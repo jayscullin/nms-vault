@@ -3,7 +3,7 @@
 
 import { test, expect } from '@playwright/test';
 import { USE_GAMEDATA } from './env.js';
-import { resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite, confirmDialog } from './helpers.js';
+import { resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite, confirmDialog, writeFixtureSave, saveTree } from './helpers.js';
 
 test.skip(!USE_GAMEDATA, 'needs the game installed (E2E_GAMEDATA=1)');
 test.beforeEach(() => resetFixtures());
@@ -162,4 +162,56 @@ test('3D view: recorded parts build a customised ship; unrecorded decals are lef
   const noWings = await get('MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN', ['FIGHT_COCKD', 'FIGHT_ENGIC']);
   expect(noWings.status()).toBe(422);
   expect(await noWings.text()).toMatch(/wings/);
+});
+
+test('change a ship type and delete a spare ship, then write', async ({ page }) => {
+  const tree = saveTree();
+  const ps = tree.BaseContext.PlayerStateData;
+  const copy = () => JSON.parse(JSON.stringify(ps.ShipOwnership[0]));
+  ps.ShipOwnership[0].Resource.Seed = [true, '0xAAAAAAAAAAAA'];
+  const spare = copy();
+  spare.Name = 'Spare';
+  spare.Resource.Seed = [true, '0xBBBBBBBBBBBB'];
+  const empty = copy();
+  empty.Name = '';
+  empty.Resource = { Filename: '', Seed: [false, '0x0'] };
+  ps.ShipOwnership.push(spare, empty);
+  writeFixtureSave('save.hg', tree);
+
+  await openSave(page, 'save.hg');
+  await page.locator('.nav-item', { hasText: 'Test Ship' }).click();
+  // The ship in use can't be deleted, but can change type.
+  await expect(page.locator('[data-action="delete-ship"]')).toBeDisabled();
+  await page.locator('[data-action="change-type"]').click();
+  await expect(page.locator('.type-preview canvas.ready')).toBeVisible(); // the current type, as an example
+  await expect(page.locator('#type-caption')).toContainText('An example Fighter, not this exact ship');
+  await page.locator('.modal input[name="kind"][value*="SHUTTLE_PROC"]').check();
+  await expect(page.locator('#type-caption')).toContainText('An example Shuttle');
+  await expect(page.locator('.type-preview canvas.ready')).toBeVisible();
+  await page.locator('[data-action="type-confirm"]').click();
+  await expect(page.locator('.content .sub')).toContainText('Shuttle');
+
+  await page.locator('.nav-item', { hasText: 'Spare' }).click();
+  await page.locator('[data-action="delete-ship"]').click();
+  await confirmDialog(page);
+  await expect(page.locator('.nav-item', { hasText: 'Spare' })).toHaveCount(0);
+
+  await reviewAndWrite(page);
+  expect(verifyFile('save.hg').ok).toBe(true);
+  const after = readSave('save.hg').BaseContext.PlayerStateData.ShipOwnership;
+  expect(after[0].Resource.Filename).toContain('SHUTTLE_PROC');
+  expect(after[0].Resource.Seed[1]).toBe('0xAAAAAAAAAAAA');
+  expect(after[1].Resource.Filename).toBe('');
+  expect(after[1].Name).toBe('');
+});
+
+test('example models exist only for swappable types', async ({ page }) => {
+  await home(page);
+  const get = (scene) => page.request.get(`/models/${encodeURIComponent(scene)}.bin?example=1`);
+  for (const type of ['FIGHTERS/FIGHTER_PROC', 'SENTINELSHIP/SENTINELSHIP_PROC', 'INDUSTRIAL/CAPITALFREIGHTER_PROC']) {
+    expect((await get(`MODELS/COMMON/SPACECRAFT/${type}.SCENE.MBIN`)).status()).toBe(200);
+  }
+  expect((await get('MODELS/COMMON/WEAPONS/MULTITOOL/MULTITOOL.SCENE.MBIN')).status()).toBe(422);
+  // The ordinary request still refuses to guess a procedural model.
+  expect((await page.request.get(`/models/${encodeURIComponent('MODELS/COMMON/SPACECRAFT/FIGHTERS/FIGHTER_PROC.SCENE.MBIN')}.bin`)).status()).toBe(422);
 });

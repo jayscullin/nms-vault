@@ -7,6 +7,7 @@ import { loadItemDb, resolveItem } from './itemdb.js';
 import { decodeDds, encodePng } from './dds.js';
 import { ruleLimit } from './stacks.js';
 import { loadModel, packModel, readCustomisationGroups, ModelError } from './model.js';
+import { SHIP_KINDS, FREIGHTER_KINDS } from '../inventory.js';
 
 let db = null;
 let iconDir = null;
@@ -158,6 +159,18 @@ function partsFor(groupIds) {
   return parts;
 }
 
+export const sceneExists = (scene) => Boolean(db?.available && db.archives.find(sceneName(scene)));
+
+// Whether a ship seed is one the game's reward table hands out.
+let rewardTable = null;
+export function isRewardSeed(hex) {
+  if (!db?.available) return false;
+  rewardTable ??= db.archives.read('metadata/reality/tables/rewardtable.mbin');
+  const bytes = Buffer.alloc(8);
+  bytes.writeBigUInt64LE(BigInt(hex));
+  return rewardTable.includes(bytes);
+}
+
 const sceneName = (scene) => String(scene ?? '').replaceAll('\\', '/').toLowerCase();
 
 // Whether a model can be shown in 3D, without decoding it. Procedural models
@@ -185,17 +198,19 @@ const models = new Map();
 // Textures referenced by a model served so far; only these can be fetched.
 const modelTextures = new Set();
 
-// Packed model bytes for a scene path and its recorded customisation groups, or throws ModelError.
-export function modelBinary(scene, groupIds = []) {
+// Packed model bytes for a scene path and its recorded customisation groups, or throws
+// ModelError. `example` builds a representative of a swappable ship or freighter type.
+export function modelBinary(scene, groupIds = [], { example = false } = {}) {
   if (!db?.available) throw new ModelError('Game data unavailable');
-  const key = `${sceneName(scene)}|${groupIds.join(',')}`;
+  if (example && ![...SHIP_KINDS, ...FREIGHTER_KINDS].some((k) => sceneName(k.scene) === sceneName(scene))) throw new ModelError('No example for this model');
+  const key = `${sceneName(scene)}|${example ? 'example' : groupIds.join(',')}`;
   if (models.has(key)) return models.get(key);
-  const parts = groupIds.length ? partsFor(groupIds) : undefined;
-  if (groupIds.length && !parts) throw new ModelError('Unknown customisation part');
-  const model = loadModel(db.archives, sceneName(scene), { parts });
+  const parts = !example && groupIds.length ? partsFor(groupIds) : undefined;
+  if (!example && groupIds.length && !parts) throw new ModelError('Unknown customisation part');
+  const model = loadModel(db.archives, sceneName(scene), { parts, example });
   for (const t of Object.values(model.textures)) if (t) modelTextures.add(t);
   const bin = packModel(model);
-  if (models.size > 8) models.delete(models.keys().next().value);
+  if (models.size > 12) models.delete(models.keys().next().value);
   models.set(key, bin);
   return bin;
 }

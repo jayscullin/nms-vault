@@ -10,9 +10,9 @@ import { decodeSave, encodeSave } from './codec.js';
 import { parse, stringify, toDisplay } from './losslessJson.js';
 import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
-import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError } from './inventory.js';
+import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError, SHIP_KINDS, FREIGHTER_KINDS, shipLock, freighterLock, shipCustomisationIndex } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus, sceneExists, isRewardSeed } from './gamedata/index.js';
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
@@ -234,6 +234,8 @@ function stackPolicy(tree, containers) {
     item: itemInfo,
     name: (id) => describe(id)?.name ?? null,
     addable: isAddable,
+    sceneExists,
+    rewardSeed: isRewardSeed,
     template: (type) => templates.get(type) ?? null,
     limitFor(slot, inv) {
       const group = stackGroupOf(inv);
@@ -357,7 +359,12 @@ export function sessionView(s) {
     summary: toDisplay(get(s.origTree, ['BaseContext', 'PlayerStateData', 'SaveSummary']) ?? ''),
     items,
     ...v,
-    containers: v.containers.map((c) => (c.model ? { ...c, model: { ...c.model, ...modelStatus(c.model.scene, c.model.parts) } } : c)),
+    containers: v.containers.map((c) => ({
+      ...c,
+      ...(c.model && { model: { ...c.model, ...modelStatus(c.model.scene, c.model.parts) } }),
+      ...(c.ship !== undefined && { manage: { kinds: SHIP_KINDS, lock: shipLock(s.work, c.ship, s.stacks) } }),
+      ...(c.freighter && { manage: { kinds: FREIGHTER_KINDS, lock: freighterLock(s.work, s.stacks) } }),
+    })),
   };
 }
 
@@ -405,6 +412,15 @@ export function addTargets(s, id) {
 // Item ids in messages ("^GEODE_LAND") become their in-game names where known.
 const nameIds = (text) => text.replace(/\^[A-Z0-9_]+(?:#\d+)?/g, (id) => describe(id)?.name ?? id);
 
+const PLAYER = ['BaseContext', 'PlayerStateData'];
+const customScope = (s, ship) => [...PLAYER, 'CharacterCustomisationData', shipCustomisationIndex(Number(ship))];
+// These ops change which ships exist or what they are, so the catalogue is rebuilt.
+const SHIP_OPS = new Set(['setShipType', 'setFreighterType', 'deleteShip']);
+function recatalog(s, tree) {
+  s.containers = catalog(tree);
+  s.cat = indexCatalog(s.containers);
+}
+
 // The tree locations an op may modify. Ops never change anything else (review's
 // structural diff enforces that), so snapshotting these is enough to undo a
 // rejected op without copying the whole multi-megabyte save.
@@ -421,6 +437,9 @@ function opScope(s, op) {
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];
     case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
     case 'rename': return [s.cat.names.get(op.target)];
+    case 'setShipType': return [[...PLAYER, 'ShipOwnership', Number(op.ship)], [...PLAYER, 'CurrentShip'], customScope(s, op.ship)];
+    case 'setFreighterType': return [[...PLAYER, 'CurrentFreighter']];
+    case 'deleteShip': return [[...PLAYER, 'ShipOwnership', Number(op.ship)], [...PLAYER, 'ShipUsesLegacyColours'], customScope(s, op.ship)];
     case 'unlockRewards': return [REWARD_LISTS[op.list] ? ['UserSettingsData', REWARD_LISTS[op.list].field] : undefined];
     case 'learnWords': return [['BaseContext', 'PlayerStateData', 'KnownWordGroups']];
     case 'learnBlueprints': return [['BaseContext', 'PlayerStateData', 'KnownTech'], ['BaseContext', 'PlayerStateData', 'KnownProducts']];
@@ -473,6 +492,7 @@ function applyToSession(s, op) {
       if (fresh.length) throw new OpError(fresh[0]);
     }
     s.work = tree;
+    if (SHIP_OPS.has(op.op)) recatalog(s, tree);
     s.ops.push({ op, touched });
     s.warnings.push(...warnings.map(nameIds));
   } catch (e) {
@@ -494,8 +514,10 @@ export function resetOps(s) {
 function replay(s) {
   const tree = parse(s.readable);
   s.warnings = [];
+  if (s.kind === 'save') recatalog(s, tree);
   for (const { op } of s.ops) {
     const r = applyAny(s, tree, op);
+    if (SHIP_OPS.has(op.op)) recatalog(s, tree);
     s.warnings.push(...r.warnings.map(nameIds));
   }
   s.work = tree;

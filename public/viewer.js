@@ -44,8 +44,9 @@ function multiply(a, b) {
 
 // Loads a model into the canvas. Returns { release, omitted }: release frees the GL
 // context; omitted lists details left out because the save doesn't record them.
-export async function showModel(canvas, scene, parts = []) {
-  const res = await fetch(`/models/${encodeURIComponent(scene)}.bin${parts.length ? `?parts=${parts.map(encodeURIComponent).join(',')}` : ''}`);
+export async function showModel(canvas, scene, parts = [], { example = false } = {}) {
+  const query = example ? '?example=1' : parts.length ? `?parts=${parts.map(encodeURIComponent).join(',')}` : '';
+  const res = await fetch(`/models/${encodeURIComponent(scene)}.bin${query}`);
   if (!res.ok) throw new Error(res.status === 422 ? await res.text() : 'Could not load the model');
   const model = unpack(await res.arrayBuffer());
 
