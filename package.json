@@ -13,7 +13,7 @@
     "dev": "node --watch server.js --no-open",
     "test": "node --test test/*.test.js",
     "test:e2e": "playwright test",
-    "test:e2e:gamedata": "E2E_GAMEDATA=1 playwright test",
+    "test:e2e:gamedata": "node e2e/with-gamedata.js",
     "test:all": "npm test && npm run test:e2e"
   },
   "devDependencies": {

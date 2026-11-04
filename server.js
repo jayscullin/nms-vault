@@ -15,7 +15,7 @@ import * as gamedata from './src/gamedata/index.js';
 const PORT = Number(process.env.PORT ?? 5280);
 const HOST = '127.0.0.1';
 const TOKEN = crypto.randomBytes(24).toString('hex');
-const PUBLIC = path.join(path.dirname(new URL(import.meta.url).pathname), 'public');
+const PUBLIC = path.join(import.meta.dirname, 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
@@ -154,7 +154,8 @@ server.listen(PORT, HOST, () => {
   console.log(`Backups: ${saves.vaultHome}`);
   console.log(gd.available ? `Item data: ${gd.items} items from ${gd.dir}` : `Item data unavailable: ${gd.reason}`);
   if (!process.argv.includes('--no-open')) {
-    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-    spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
+    // Opening a browser is a convenience; the address above still works if it fails.
+    const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
   }
 });

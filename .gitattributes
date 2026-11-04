@@ -1,0 +1,2 @@
+# Keep the same line endings on every system, including Windows checkouts.
+* text=auto eol=lf

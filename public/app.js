@@ -55,6 +55,7 @@ narrow.addEventListener('change', () => {
   if (state.view) render();
 });
 
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+'; // the shortcut key this system shows
 const CURRENCY_LABELS = { Units: 'Units', Nanites: 'Nanites', Specials: 'Quicksilver' };
 const CURRENCY_ICONS = { Units: 'units', Nanites: 'nanites', Specials: 'quicksilver' };
 const BULK = new Set(['general', 'storage']); // kinds that can receive items; matches src/inventory.js
@@ -172,9 +173,9 @@ function renderTopbar() {
   const opsBefore = seen.ops;
   const opsChanged = changed('ops', v?.ops ?? 0);
   $('#pending').innerHTML = v
-    ? `<button class="btn icon-btn undo-btn" data-action="undo" aria-label="Undo${v.ops ? `, ${v.ops} pending change${v.ops === 1 ? '' : 's'}` : ''}" title="Undo (⌘Z)" ${v.ops ? '' : 'disabled'}>${v.ops ? `<span class="badge${opsChanged ? ' pop' : ''}">${v.ops}</span>` : ''}${icon('undo')}</button>
+    ? `<button class="btn icon-btn undo-btn" data-action="undo" aria-label="Undo${v.ops ? `, ${v.ops} pending change${v.ops === 1 ? '' : 's'}` : ''}" title="Undo (${MOD}Z)" ${v.ops ? '' : 'disabled'}>${v.ops ? `<span class="badge${opsChanged ? ' pop' : ''}">${v.ops}</span>` : ''}${icon('undo')}</button>
        <button class="btn icon-btn" data-action="reset" aria-label="Reset: discard all changes" title="Reset: discard all changes" ${v.ops ? '' : 'disabled'}>${icon('discard')}</button>
-       <button class="btn primary${v.ops && !opsBefore ? ' arrive' : ''}" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
+       <button class="btn primary${v.ops && !opsBefore ? ' arrive' : ''}" data-action="review" title="Review and save (${MOD}S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
     : '';
   // Global tools, on every page.
   $('#global-tools').innerHTML = `${renderRewardsButton()}${state.gamedata?.available
@@ -1461,8 +1462,8 @@ const SHORTCUTS = [
   ['U', 'Unlock the locked slots of the selected inventory'],
   ['A / Enter', 'Add an item to the selected empty cell'],
   ['/', 'Search'],
-  ['⌘S', 'Review changes; ⌘S again (or Enter) writes the save'],
-  ['⌘Z', 'Undo'],
+  [`${MOD}S`, `Review changes; ${MOD}S again (or Enter) writes the save`],
+  [`${MOD}Z`, 'Undo'],
   ['Esc', 'Close a dialog or clear the selection'],
   ['?', 'Show these shortcuts'],
 ];

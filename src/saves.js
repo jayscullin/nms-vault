@@ -16,7 +16,7 @@ import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = import.meta.dirname;
 export const mapping = loadMapping(path.join(here, '..', 'data', 'mapping.json'));
 
 const META_SIZE_WORD = 14; // decompressed size (text + NUL) in Frontiers-era and later manifests
@@ -636,7 +636,20 @@ async function writeAtomic(target, bytes) {
   } finally {
     await fh.close();
   }
-  await fsp.rename(tmp, target);
+  // Windows refuses to replace a file while anything has it open, often only briefly
+  // (antivirus, Steam Cloud, search indexing), so give that a moment to clear.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fsp.rename(tmp, target);
+      return;
+    } catch (e) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) {
+        await fsp.rm(tmp, { force: true });
+        throw e;
+      }
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+    }
+  }
 }
 
 export const backup = (s, reason) => backupFiles(s.account, [s.file], reason);
