@@ -143,8 +143,8 @@ test.describe('editing', () => {
 
   test('a group page shows every member and items drag between them', async ({ page }) => {
     await openSave(page, 'save.hg');
-    await page.locator('.group-title', { hasText: 'Storage' }).click();
-    await expect(page.locator('.content > h2')).toHaveText('Storage');
+    await page.locator('.group-title', { hasText: 'Storage' }).locator('.pill').click();
+    await expect(page.locator('.content h2').first()).toHaveText('Storage');
     await expect(page.locator('.group-member')).toHaveCount(2);
     const supplies = page.locator('.group-member').nth(0);
     const other = page.locator('.group-member').nth(1);
@@ -320,6 +320,35 @@ test.describe('save menu', () => {
     await openMenu(page, 'save.hg');
     await page.locator('.home h1').click();
     await expect(page.locator('.save-menu')).toHaveCount(0);
+  });
+});
+
+test.describe('inventory toolbar', () => {
+  // One atomic read of the live page: a resize can redraw it at any moment.
+  const measure = (page) => page.evaluate(() => {
+    const sec = document.querySelector('.inv');
+    const h3 = sec.querySelector('h3').getBoundingClientRect();
+    const tools = sec.querySelector('.inv-tools').getBoundingClientRect();
+    const first = sec.querySelector('.inv-tools > *').getBoundingClientRect();
+    return { h3Left: h3.left, toolsRight: tools.right, h3Right: h3.right, firstLeft: first.left, toolsTop: tools.top, labelTop: sec.querySelector('h3').firstChild.parentElement.getBoundingClientRect().top, sortText: getComputedStyle(sec.querySelector('[data-action="sort"] .tool-text')).display };
+  });
+
+  test('condenses to glyphs, then moves under the heading, as room runs out', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await openSave(page, 'save.hg');
+    expect((await measure(page)).sortText).not.toBe('none');
+
+    // Resizing can redraw the page, so wait for the new layout before measuring.
+    await page.setViewportSize({ width: 1350, height: 900 });
+    await expect.poll(async () => (await measure(page)).sortText).toBe('none');
+    let m = await measure(page);
+    expect(m.firstLeft).toBeGreaterThan(m.h3Left + 100); // still beside the heading
+
+    await page.setViewportSize({ width: 600, height: 900 });
+    await expect.poll(async () => { const now = await measure(page); return Math.abs(now.firstLeft - now.h3Left) < 1; }).toBe(true); // lined up with the heading
+    m = await measure(page);
+    expect(m.sortText).toBe('none');
+    await expect(page.getByRole('button', { name: /^Sort / }).first()).toBeVisible(); // still named
   });
 });
 

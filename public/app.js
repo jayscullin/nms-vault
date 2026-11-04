@@ -43,6 +43,7 @@ narrow.addEventListener('change', () => {
 });
 
 const CURRENCY_LABELS = { Units: 'Units', Nanites: 'Nanites', Specials: 'Quicksilver' };
+const CURRENCY_ICONS = { Units: 'units', Nanites: 'nanites', Specials: 'quicksilver' };
 const BULK = new Set(['general', 'storage']); // kinds that can receive items; matches src/inventory.js
 
 // ---- helpers ---------------------------------------------------------------
@@ -141,7 +142,7 @@ function moveToContainer(from, containerId) {
 function renderTopbar() {
   const v = state.view;
   $('#save-info').innerHTML = v
-    ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · ${esc(v.file)} · ${esc(v.account)}`
+    ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · <span class="mono">${esc(v.file)} · ${esc(v.account)}</span>`
     : '<span class="muted">No save open</span>';
   $('#pending').innerHTML = v
     ? `${v.ops ? `<span class="badge" title="Pending changes">${v.ops}</span>` : ''}
@@ -289,7 +290,7 @@ function renderSidebar() {
   const count = (c) => c.inventories.reduce((n, i) => n + i.slots.length, 0);
   return `
     <nav class="sidebar">
-      <div class="search"><input type="search" id="search" placeholder="Find items…" value="${esc(state.search)}" aria-label="Find items"></div>
+      <div class="search"><label class="search-box">${icon('search', 15)}<input type="search" id="search" placeholder="Search..." value="${esc(state.search)}" aria-label="Search items"></label></div>
       <div class="nav-group">
         <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span class="with-icon">${icon('inventory', 14)}Inventory</span></button>
         <button class="nav-item ${state.selected === 'words' ? 'active' : ''}" data-select="words"><span class="with-icon">${icon('words', 14)}Words</span></button>
@@ -299,7 +300,7 @@ function renderSidebar() {
         .map(
           ([group, list]) => `
       <div class="nav-group">
-        <button class="group-title ${state.selected === `group:${group}` ? 'active' : ''}" data-select="group:${esc(group)}" title="Show all ${esc(group)} together"><span class="with-icon">${groupIcon(group)}${esc(group)}</span> <span class="count">${list.length > 1 ? `all ${list.length}` : ''}</span></button>
+        <div class="group-title ${state.selected === `group:${group}` ? 'active' : ''}"><span class="with-icon">${groupIcon(group)}${esc(group)}</span>${list.length > 1 ? `<button class="pill ${state.selected === `group:${group}` ? 'active' : ''}" data-select="group:${esc(group)}" title="Show all ${esc(group)} together" aria-label="Show all ${list.length} ${esc(group)} together">All ${list.length}</button>` : ''}</div>
         ${list
           .map(
             (c) => `
@@ -436,14 +437,14 @@ function renderGroup(group) {
   const members = state.view.containers.filter((c) => c.group === group);
   const techOnly = members.every((c) => c.inventories.every((i) => i.kind === 'tech'));
   return `
-    <h2 class="with-icon">${groupIcon(group, 20)}${esc(group)}</h2>
+    <h2 class="with-icon">${groupIcon(group, 22)}${esc(group)}</h2>
     <p class="sub">${members.length} ${members.length === 1 ? 'entry' : 'entries'}. Drag items between any of them.${techOnly ? ' Technology stays in its own grid, so here you can rearrange each one but not move tech between them.' : ''}</p>
     ${members
       .map(
         (c) => `
       <section class="group-member">
-        <h2 class="member-title">${esc(c.title)} ${c.current ? '<span class="current" title="Currently in use">●</span>' : ''}<span class="muted small">${esc(c.subtitle && c.subtitle !== c.title ? c.subtitle : '')}</span> ${renameButton(c)} ${modelButton(c)}
-          <button class="btn small" data-select="${esc(c.id)}">Open on its own</button></h2>
+        <h2 class="member-title">${esc(c.title)} ${c.current ? '<span class="current" title="Currently in use">●</span>' : ''}<span class="muted small">${esc(c.subtitle && c.subtitle !== c.title ? c.subtitle : '')}</span> ${renameButton(c)} ${modelButton(c)} ${manageButtons(c)}
+          <button class="btn small" data-select="${esc(c.id)}">Select</button></h2>
         ${renderInventories(c)}
       </section>`,
       )
@@ -471,16 +472,16 @@ state.sortCombine = true;
 function sortTools(inv) {
   const locked = inv.width * inv.height - inv.valid.length;
   const unlock = canUnlockSlots(inv) && locked > 0
-    ? `<button class="btn small" data-action="unlock-slots" data-inv="${esc(inv.id)}" title="Unlock every locked cell in this grid">Unlock ${locked} slot${locked === 1 ? '' : 's'}</button>`
+    ? `<button class="btn small with-icon" data-action="unlock-slots" data-inv="${esc(inv.id)}" title="Unlock every locked cell in this grid" aria-label="Unlock ${locked} slot${locked === 1 ? '' : 's'}">${icon('unlock', 14)}<span><span class="tool-text">Unlock </span>${locked}<span class="tool-text"> slot${locked === 1 ? '' : 's'}</span></span></button>`
     : '';
   if (!BULK.has(inv.kind) || inv.slots.filter((s) => s.type !== 'Technology').length < 2) return unlock ? `<span class="inv-tools">${unlock}</span>` : '';
   const opts = [['type', 'Type'], ['name', 'Name'], ['amount', 'Amount']];
   return `
     <span class="inv-tools">
       ${unlock}
-      <select data-sort-by aria-label="Sort ${esc(inv.label)} by">${opts.map(([v, l]) => `<option value="${v}" ${v === state.sortBy ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="combine" title="Merge partial stacks of the same item, up to the game's stack limit"><input type="checkbox" data-sort-combine ${state.sortCombine ? 'checked' : ''}> Combine stacks</label>
-      <button class="btn small" data-action="sort" data-inv="${esc(inv.id)}">Sort</button>
+      <label class="sort-by">${icon('filter', 14)}<select data-sort-by aria-label="Sort ${esc(inv.label)} by">${opts.map(([v, l]) => `<option value="${v}" ${v === state.sortBy ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="combine" title="Merge partial stacks of the same item, up to the game's stack limit"><input type="checkbox" data-sort-combine aria-label="Combine stacks" ${state.sortCombine ? 'checked' : ''}>${icon('combine', 14)}<span class="tool-text">Combine stacks</span></label>
+      <button class="btn small with-icon" data-action="sort" data-inv="${esc(inv.id)}" title="Sort ${esc(inv.label)}" aria-label="Sort ${esc(inv.label)}">${icon('sort', 14)}<span class="tool-text">Sort</span></button>
     </span>`;
 }
 
@@ -638,7 +639,7 @@ function renderCurrencies() {
     <div class="currency-bar">${Object.entries(v.currencies)
       .map(([k, n]) => `
       <label class="currency" title="Click to edit ${CURRENCY_LABELS[k]}">
-        <small>${CURRENCY_LABELS[k]}</small>
+        <small class="with-icon">${icon(CURRENCY_ICONS[k], 13)}${CURRENCY_LABELS[k]}</small>
         <input data-currency="${k}" value="${fmt(n)}" inputmode="numeric" aria-label="${CURRENCY_LABELS[k]}">
       </label>`)
       .join('')}
