@@ -419,9 +419,7 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
   .content { padding: 16px 16px 110px; }
   main:has(> .details.collapsed) .sidebar .search { padding-right: 64px; } /* clear of the details tab */
   :root { --cell-max: 96px; }
-  /* Narrow: label and details on their own lines, then the buttons in one row. */
-  .slot-row { grid-template-columns: auto auto auto 1fr; padding-left: 16px; }
-  .slot-row > div:first-child { grid-column: 1 / -1; }
+  .slot-row { padding-left: 16px; }
   .slot-warning { margin-left: 16px; }
   .verify-result { padding-left: 0; }
   .content h2 { font-size: 22px; }
@@ -440,6 +438,23 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
   .currency { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
   .currency input { text-align: right; font-size: 18px; }
 }
+/* Open with its menu: two halves of one button. */
+.split-btn { position: relative; display: inline-flex; align-self: center; }
+.split-btn > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.btn.primary.split-toggle .icon { display: block; margin-right: 0; }
+.split-toggle { display: grid; place-items: center; padding: 0 5px; line-height: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(28, 18, 3, .35); }
+.save-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 190px; padding: 6px;
+  background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 12px 30px #000a;
+}
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 13px; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--panel-2); }
+.menu-item .icon { color: var(--muted); flex-shrink: 0; }
+.menu-item.danger, .menu-item.danger .icon { color: #ff7d8d; }
+.menu-item.danger:hover { background: rgba(229, 56, 79, .16); }
+.save-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+.sort-by { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+
 /* Change type: the types beside a preview of the chosen one. */
 .type-picker { display: grid; grid-template-columns: minmax(170px, 220px) 1fr; gap: 14px; min-height: 0; margin-top: 12px; }
 .type-picker .add-targets { margin: 0; align-content: start; }

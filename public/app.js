@@ -19,6 +19,8 @@ const state = {
   slot: null, // { inv, x, y }
   search: '',
   highlight: null, // item id to outline
+  saveMenu: null, // account/file whose Open menu is showing
+  rewardsMenu: false, // the top bar's platform chooser
   detailsOverlayOpen: false, // the details drawer, when it floats over the content at small widths
 };
 
@@ -148,9 +150,33 @@ function renderTopbar() {
        <button class="btn primary" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
     : '';
   // Global tools, on every page.
-  $('#global-tools').innerHTML = state.gamedata?.available
-    ? `<button class="btn with-icon" data-action="catalogue" title="Browse every item in the game">${icon('catalogue')}Item catalogue</button>`
-    : '';
+  $('#global-tools').innerHTML = `${renderRewardsButton()}${state.gamedata?.available
+    ? `<button class="btn with-icon all-items-btn" data-action="catalogue" title="Browse every item in the game">${icon('shapes')}All Items</button>`
+    : ''}`;
+}
+
+// Rewards live in each platform's own account file. With a save or rewards open that
+// is its platform; on the save page, several platforms get a menu to choose from.
+function rewardAccounts() {
+  const open = state.view?.account;
+  return state.accounts.filter((a) => a.accountFile && (!open || a.id === open));
+}
+
+function renderRewardsButton() {
+  const accounts = rewardAccounts();
+  if (!accounts.length) return '';
+  const showing = state.view?.kind === 'account';
+  if (accounts.length === 1) {
+    const [a] = accounts;
+    const label = `Rewards for ${a.kind} account ${a.id}`;
+    return `<button class="btn with-icon ${showing ? 'active' : ''}" data-action="open-rewards" data-account="${esc(a.id)}" data-file="accountdata.hg" title="${esc(label)}" aria-label="${esc(label)}" ${showing ? 'aria-current="page"' : ''}>${icon('award')}Rewards</button>`;
+  }
+  return `<div class="split-btn">
+    <button class="btn with-icon" data-action="rewards-menu" aria-haspopup="menu" aria-expanded="${state.rewardsMenu}" title="Choose a platform">${icon('award')}Rewards${icon('chevron', 14)}</button>
+    ${state.rewardsMenu ? `<div class="save-menu" role="menu">${accounts
+      .map((a) => `<button class="menu-item" role="menuitem" data-action="open-rewards" data-account="${esc(a.id)}" data-file="accountdata.hg"><span><b>${esc(a.kind)}</b> <span class="mono muted">${esc(a.id)}</span></span></button>`)
+      .join('')}</div>` : ''}
+  </div>`;
 }
 
 // ---- save picker -----------------------------------------------------------
@@ -210,13 +236,22 @@ function renderSlotGroup(a, { slot, saves }) {
 
 function renderSaveRow(a, s) {
   const vr = state.verify[`${a.id}/${s.file}`];
+  const menuOpen = state.saveMenu === `${a.id}/${s.file}`;
   return `
     <div class="slot-row">
       <div>${esc(s.summary ?? s.error ?? 'Unknown location')}
         <div class="when">${savedAt(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}${playTime(s.playTime) ? ` · ${playTime(s.playTime)}` : ''} · <span class="mono">${esc(s.file)}</span></div></div>
-      <button class="btn small" data-action="verify" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Prove the save can be rewritten without changing a byte">Verify</button>
-      <button class="btn small" data-action="slot-menu" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Export, copy, move, swap or delete">More…</button>
-      <button class="btn primary" data-action="open" data-account="${esc(a.id)}" data-file="${esc(s.file)}">Open</button>
+      <div class="split-btn">
+        <button class="btn primary" data-action="open" data-account="${esc(a.id)}" data-file="${esc(s.file)}">Open</button>
+        <button class="btn primary split-toggle" data-action="save-menu" data-account="${esc(a.id)}" data-file="${esc(s.file)}" aria-haspopup="menu" aria-expanded="${menuOpen}" aria-label="More actions for ${esc(s.file)}">${icon('chevron', 16)}</button>
+        ${menuOpen ? `<div class="save-menu" role="menu">
+          <button class="menu-item" role="menuitem" data-action="export-json" data-account="${esc(a.id)}" data-file="${esc(s.file)}">${icon('export', 15)}Export as JSON</button>
+          <button class="menu-item" role="menuitem" data-action="slot-menu" data-account="${esc(a.id)}" data-file="${esc(s.file)}">${icon('copy', 15)}Copy…</button>
+          <button class="menu-item" role="menuitem" data-action="verify" data-account="${esc(a.id)}" data-file="${esc(s.file)}" title="Prove the save can be rewritten without changing a byte">${icon('verify', 15)}Verify</button>
+          <hr>
+          <button class="menu-item danger" role="menuitem" data-action="slot-op" data-op="delete" data-account="${esc(a.id)}" data-file="${esc(s.file)}">${icon('trash', 15)}Delete</button>
+        </div>` : ''}
+      </div>
       ${vr ? `<div class="verify-result">${vr.checks.map((c) => `<span style="color:var(--${c.ok ? 'ok' : 'bad'})">${c.ok ? '✓' : '✗'} ${esc(c.name)}${c.detail ? ` <span class="muted">— ${esc(c.detail)}</span>` : ''}</span>`).join('')}</div>` : ''}
     </div>`;
 }
@@ -236,8 +271,7 @@ function renderHome() {
         <div class="account">
           <header><div><b>${esc(a.kind)}</b> <span class="muted mono">${esc(a.id)}</span></div>
             <div class="stack-row">
-              ${a.accountFile ? `<button class="btn small" data-action="open" data-account="${esc(a.id)}" data-file="accountdata.hg" title="Unlock expedition and Twitch rewards for this account">Account rewards</button>` : ''}
-              <button class="btn small" data-action="backups" data-account="${esc(a.id)}">Backups</button>
+              <button class="btn small with-icon" data-action="backups" data-account="${esc(a.id)}">${icon('backups', 14)}Backups</button>
             </div></header>
           ${slotGroups(a.slots).map((g) => renderSlotGroup(a, g)).join('')}
         </div>`,
@@ -687,7 +721,7 @@ state.cat = { type: '', query: '', results: null };
 
 function openCatalogue() {
   modal(`
-    <h2 class="with-icon">${icon('catalogue', 20)}Item catalogue</h2>
+    <h2 class="with-icon">${icon('shapes', 20)}All Items</h2>
     <p class="muted">Every named item in your installed game, read from its data files.</p>
     <div class="reward-bar">
       <div class="tabs" data-cat-tabs>${catalogueTabs()}</div>
@@ -756,7 +790,7 @@ async function openCatalogueAdd(id, name) {
   const targets = await api('/api/add-targets', { sessionId: state.view.sessionId, id });
   const usable = targets.filter((t) => !t.reason);
   modal(`
-    <h2 class="with-icon">${icon('catalogue', 20)}Add ${esc(name)}</h2>
+    <h2 class="with-icon">${icon('shapes', 20)}Add ${esc(name)}</h2>
     <p class="muted">It goes into the first free unlocked cell of the inventory you pick, with the game's stack limit for it there. Like any edit, it's staged until you save.</p>
     <div class="add-targets">${targets.map((t, i) => `
       <label class="add-target ${t.reason ? 'unavailable' : ''}" ${t.reason ? `title="${esc(t.reason)}"` : ''}>
@@ -807,9 +841,6 @@ async function openSlotMenu(account, file) {
   modal(`
     <h2>${esc(file)}</h2>
     <p class="muted">${esc(existing.get(file)?.summary ?? '')}. Every change here is backed up first and can be restored from Backups.</p>
-    <div class="stack">
-      <button class="btn" data-action="export-json" data-account="${esc(account)}" data-file="${esc(file)}">Export as readable JSON</button>
-    </div>
     <h3 class="modal-sub">Copy, move or swap</h3>
     <select id="slot-target" class="slot-select" aria-label="Target slot">${options.join('')}</select>
     <div class="stack-row" style="margin-top:8px">
@@ -817,8 +848,6 @@ async function openSlotMenu(account, file) {
       <button class="btn" data-action="slot-op" data-op="move" data-account="${esc(account)}" data-file="${esc(file)}">Move here</button>
       <button class="btn" data-action="slot-op" data-op="swap" data-account="${esc(account)}" data-file="${esc(file)}">Swap with it</button>
     </div>
-    <h3 class="modal-sub">Delete</h3>
-    <button class="btn danger" data-action="slot-op" data-op="delete" data-account="${esc(account)}" data-file="${esc(file)}">Delete this save</button>
     <footer><button class="btn" data-action="close-modal">Close</button></footer>`);
 }
 
@@ -952,6 +981,13 @@ function modal(html, { wide = false } = {}) {
   releaseModal = null;
   $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="close-modal"><div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`;
 }
+function closeSaveMenu() {
+  state.saveMenu = null;
+  state.rewardsMenu = false;
+  $('.save-menu')?.remove();
+  document.querySelector('[aria-haspopup="menu"][aria-expanded="true"]')?.setAttribute('aria-expanded', 'false');
+}
+
 let releaseModal = null;
 const closeModal = () => {
   releaseModal?.();
@@ -1086,6 +1122,8 @@ async function loadAccounts() {
 }
 
 document.addEventListener('click', async (e) => {
+  // Any click closes an open save menu; its own items still run below.
+  if ((state.saveMenu || state.rewardsMenu) && !e.target.closest('[data-action="save-menu"],[data-action="rewards-menu"]')) closeSaveMenu();
   const t = e.target.closest('[data-action],[data-select],[data-slot],[data-cell],[data-jump],[data-reward],[data-reward-tab],[data-reward-filter],[data-bp],[data-bp-filter],[data-cat-type]');
   if (!t) return;
   if (t.matches('.modal-backdrop') && e.target !== t) return;
@@ -1154,6 +1192,13 @@ document.addEventListener('click', async (e) => {
         state.verify[`${d.account}/${d.file}`] = await api('/api/verify', { account: d.account, file: d.file });
         render();
       });
+    case 'rewards-menu':
+      state.rewardsMenu = !state.rewardsMenu;
+      return renderTopbar();
+    case 'open-rewards':
+      if (state.view?.kind === 'account') return;
+      if (state.view?.ops && !(await ask('Discard unsaved changes?', { ok: 'Discard', danger: true }))) return;
+    // falls through
     case 'open':
       return run(async () => {
         state.view = await api('/api/open', { account: d.account, file: d.file });
@@ -1218,6 +1263,11 @@ document.addEventListener('click', async (e) => {
       return run(() => openCatalogueAdd(d.id, d.name));
     case 'cat-add-confirm':
       return confirmCatalogueAdd(d.id);
+    case 'save-menu': {
+      const key = `${d.account}/${d.file}`;
+      state.saveMenu = state.saveMenu === key ? null : key;
+      return render();
+    }
     case 'change-type':
       return openTypeChange(d.container);
     case 'type-confirm': {
@@ -1408,6 +1458,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset.currency) e.target.blur();
   const reviewOpen = $('#modal-root [data-action="commit"]');
   if (e.key === 'Escape') {
+    if (state.saveMenu || state.rewardsMenu) return closeSaveMenu();
     if ($('#modal-root .modal')) return closeModal();
     if (narrow.matches && state.detailsOverlayOpen && !typing(e.target)) return toggleDetails(false);
     if (state.slot && !typing(e.target)) {

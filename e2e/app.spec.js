@@ -4,10 +4,14 @@
 import { test, expect } from '@playwright/test';
 import {
   resetFixtures, readSave, verifyFile, exosuitSlots, home, openSave, cell, reviewAndWrite,
-  confirmDialog, writeFixtureSave, saveTree, fileExists,
+  confirmDialog, writeFixtureSave, saveTree, fileExists, accountDir,
 } from './helpers.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 test.beforeEach(() => resetFixtures());
+
+const openMenu = (page, file) => page.locator(`[data-action="save-menu"][data-file="${file}"]`).first().click();
 
 test.describe('home screen', () => {
   test('shows the test banner and one save per slot, like the game', async ({ page }) => {
@@ -23,6 +27,7 @@ test.describe('home screen', () => {
 
   test('Verify proves a save round-trips without writing', async ({ page }) => {
     await home(page);
+    await openMenu(page, 'save.hg');
     await page.locator('[data-action="verify"][data-file="save.hg"]').first().click();
     const result = page.locator('.verify-result').first();
     await expect(result).toContainText('Manifest decrypts and matches');
@@ -215,6 +220,7 @@ test.describe('editing', () => {
 test.describe('save slots', () => {
   test('copy to an empty slot creates a separate save with a new id', async ({ page }) => {
     await home(page);
+    await openMenu(page, 'save.hg');
     await page.locator('[data-action="slot-menu"][data-file="save.hg"]').first().click();
     await page.locator('#slot-target').selectOption('save5.hg');
     await page.locator('[data-action="slot-op"][data-op="copy"]').click();
@@ -228,7 +234,7 @@ test.describe('save slots', () => {
 
   test('delete warns about Steam Cloud and removes the files', async ({ page }) => {
     await home(page);
-    await page.locator('[data-action="slot-menu"][data-file="save3.hg"]').first().click();
+    await openMenu(page, 'save3.hg');
     await page.locator('[data-action="slot-op"][data-op="delete"]').click();
     expect(await confirmDialog(page)).toContain('Steam Cloud');
     await expect(page.locator('.slot-group')).toHaveCount(1);
@@ -238,7 +244,7 @@ test.describe('save slots', () => {
 
   test('export downloads the save as readable JSON', async ({ page }) => {
     await home(page);
-    await page.locator('[data-action="slot-menu"][data-file="save.hg"]').first().click();
+    await openMenu(page, 'save.hg');
     const [download] = await Promise.all([page.waitForEvent('download'), page.locator('[data-action="export-json"]').click()]);
     const json = JSON.parse(await (await import('node:fs')).promises.readFile(await download.path(), 'utf8'));
     expect(json.CommonStateData.SaveUniversalId).toBe(readSave('save.hg').CommonStateData.SaveUniversalId);
@@ -247,7 +253,7 @@ test.describe('save slots', () => {
 
   test('backups list every write and restore puts a save back', async ({ page }) => {
     await home(page);
-    await page.locator('[data-action="slot-menu"][data-file="save3.hg"]').first().click();
+    await openMenu(page, 'save3.hg');
     await page.locator('[data-action="slot-op"][data-op="delete"]').click();
     await confirmDialog(page);
     await expect(page.locator('.slot-group')).toHaveCount(1);
@@ -266,6 +272,54 @@ test.describe('account rewards', () => {
     await page.locator('[data-file="accountdata.hg"]').click();
     await expect(page.getByRole('heading', { name: 'Account rewards' })).toBeVisible();
     await expect(page.locator('[data-reward-tab]')).toHaveCount(4);
+  });
+});
+
+test.describe('rewards button', () => {
+  const OTHER = 'st_76561190000000002';
+  const addPlatform = () => fs.cpSync(accountDir, path.join(accountDir, '..', OTHER), { recursive: true });
+  const rewards = (page) => page.locator('#global-tools');
+
+  test('one platform opens directly, and a save with changes asks first', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 0, 0).click();
+    await page.locator('[data-action="remove"]').click();
+    await rewards(page).getByRole('button', { name: /^Rewards for / }).click();
+    await page.locator('#confirm-root [data-confirm="cancel"]').click();
+    await expect(page.locator('.inv').first()).toBeVisible(); // still in the save
+    await rewards(page).getByRole('button', { name: /^Rewards for / }).click();
+    await confirmDialog(page);
+    await expect(page.getByRole('heading', { name: 'Account rewards' })).toBeVisible();
+  });
+
+  test('several platforms: the save page offers a choice, an open save uses its own', async ({ page }) => {
+    addPlatform();
+    await home(page);
+    await rewards(page).locator('[data-action="rewards-menu"]').click();
+    await expect(rewards(page).locator('.menu-item')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await expect(rewards(page).locator('.menu-item')).toHaveCount(0);
+
+    await page.locator(`[data-action="open"][data-account="${OTHER}"][data-file="save.hg"]`).click();
+    const button = rewards(page).getByRole('button', { name: new RegExp(`^Rewards for .*${OTHER}`) });
+    await expect(button).toBeVisible();
+    await button.click();
+    await expect(page.locator('#save-info')).toContainText(OTHER);
+    await expect(page.getByRole('heading', { name: 'Account rewards' })).toBeVisible();
+  });
+});
+
+test.describe('save menu', () => {
+  test('Open has a menu that closes on Escape or an outside click', async ({ page }) => {
+    await home(page);
+    await expect(page.locator('.save-menu')).toHaveCount(0);
+    await openMenu(page, 'save.hg');
+    await expect(page.locator('.save-menu .menu-item')).toHaveText(['Export as JSON', 'Copy…', 'Verify', 'Delete']);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.save-menu')).toHaveCount(0);
+    await openMenu(page, 'save.hg');
+    await page.locator('.home h1').click();
+    await expect(page.locator('.save-menu')).toHaveCount(0);
   });
 });
 

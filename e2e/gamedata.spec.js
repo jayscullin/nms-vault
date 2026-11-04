@@ -83,7 +83,7 @@ test('the item catalogue opens in a modal without a save, from the top bar', asy
   await home(page);
   await page.locator('.topbar [data-action="catalogue"]').click();
   const dialog = page.locator('.modal.wide');
-  await expect(dialog.getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'All Items' })).toBeVisible();
   await page.locator('#cat-search').fill('pulse engine');
   await expect(dialog.locator('.cat-row').first()).toContainText('Pulse Engine');
   await expect(page.locator('#cat-search')).toBeFocused();
@@ -130,7 +130,7 @@ test('the catalogue modal opens over an open save and closing it keeps staged ch
   await page.keyboard.press('f');
   await expect(page.locator('.badge')).toHaveText('1');
   await page.locator('.topbar [data-action="catalogue"]').click();
-  await expect(page.locator('.modal.wide').getByRole('heading', { name: 'Item catalogue' })).toBeVisible();
+  await expect(page.locator('.modal.wide').getByRole('heading', { name: 'All Items' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('.modal')).toHaveCount(0);
   await expect(page.locator('.content h2')).toContainText('Exosuit');
