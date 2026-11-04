@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { HgPak } from './hgpak.js';
 import { readTable } from './mbin.js';
@@ -21,32 +22,69 @@ const SOURCES = [
 // Loaded in order; later files override earlier ones.
 const LANGUAGES = [/nms_(loc\d+|update\d+)_english\.mbin$/, /nms_(loc\d+|update\d+)_usenglish\.mbin$/];
 
+// Library folders listed in Steam's libraryfolders.vdf.
+export function parseLibraryFolders(vdf) {
+  return [...vdf.matchAll(/"path"\s+"([^"]+)"/g)].map((m) => m[1].replace(/\\\\/g, '/'));
+}
+
+// Where Steam itself lives on this system.
+function steamRoots() {
+  const home = os.homedir();
+  if (process.platform === 'darwin') return [path.join(home, 'Library/Application Support/Steam')];
+  if (process.platform === 'linux') {
+    return [path.join(home, '.local/share/Steam'), path.join(home, '.steam/steam'), path.join(home, '.steam/root'), path.join(home, '.var/app/com.valvesoftware.Steam/.local/share/Steam')];
+  }
+  if (process.platform !== 'win32') return [];
+  const roots = ['C:/Program Files (x86)/Steam', 'C:/Program Files/Steam'];
+  try {
+    const out = execFileSync('reg', ['query', 'HKCU\\Software\\Valve\\Steam', '/v', 'SteamPath'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const found = /SteamPath\s+REG_SZ\s+(.+)/.exec(out)?.[1]?.trim();
+    if (found) roots.unshift(found);
+  } catch {}
+  return roots;
+}
+
+// Every Steam library on this system: Steam's own folders plus the ones it lists.
+export function steamLibraries() {
+  const libs = new Set(steamRoots());
+  for (const root of [...libs]) {
+    try {
+      for (const lib of parseLibraryFolders(fs.readFileSync(path.join(root, 'steamapps/libraryfolders.vdf'), 'utf8'))) libs.add(lib);
+    } catch {}
+  }
+  return [...libs];
+}
+
+// Candidate game data folders, most likely first.
 export function gameDataDirs() {
   if (process.env.NMS_GAME_DIR) return [process.env.NMS_GAME_DIR];
   const home = os.homedir();
-  const steamLibs = {
-    darwin: [path.join(home, 'Library/Application Support/Steam')],
-    win32: ['C:/Program Files (x86)/Steam', 'C:/Program Files/Steam'],
-    linux: [path.join(home, '.local/share/Steam'), path.join(home, '.steam/steam')],
-  }[process.platform] ?? [];
-  const libs = new Set(steamLibs);
-  for (const lib of steamLibs) {
-    try {
-      const vdf = fs.readFileSync(path.join(lib, 'steamapps/libraryfolders.vdf'), 'utf8');
-      for (const m of vdf.matchAll(/"path"\s+"([^"]+)"/g)) libs.add(m[1].replace(/\\\\/g, '/'));
-    } catch {}
-  }
   const dirs = [];
-  for (const lib of libs) {
+  for (const lib of steamLibraries()) {
     const game = path.join(lib, "steamapps/common/No Man's Sky");
     dirs.push(path.join(game, "No Man's Sky.app/Contents/Resources/GAMEDATA/MACOSBANKS"), path.join(game, 'GAMEDATA/PCBANKS'));
   }
   if (process.platform === 'darwin') dirs.push(path.join(home, "Applications/No Man's Sky.app/Contents/Resources/GAMEDATA/MACOSBANKS"), "/Applications/No Man's Sky.app/Contents/Resources/GAMEDATA/MACOSBANKS");
+  if (process.platform === 'win32') {
+    // GOG, and Steam libraries on other drives that Steam's list couldn't tell us about.
+    for (const drive of ['C', 'D', 'E', 'F', 'G']) {
+      for (const base of ['GOG Games', 'Program Files (x86)/GOG Galaxy/Games', 'Program Files/GOG Galaxy/Games']) dirs.push(`${drive}:/${base}/No Man's Sky/GAMEDATA/PCBANKS`);
+      dirs.push(`${drive}:/SteamLibrary/steamapps/common/No Man's Sky/GAMEDATA/PCBANKS`, `${drive}:/Steam/steamapps/common/No Man's Sky/GAMEDATA/PCBANKS`);
+    }
+  }
+  if (process.platform === 'linux') dirs.push(path.join(home, "GOG Games/No Man's Sky/GAMEDATA/PCBANKS"), path.join(home, "Games/no-mans-sky/drive_c/GOG Games/No Man's Sky/GAMEDATA/PCBANKS"));
   return dirs;
 }
 
 export function findGameData() {
-  return gameDataDirs().find((d) => fs.existsSync(path.join(d, 'NMSARC.Precache.pak'))) ?? null;
+  const hasArchives = (d) => {
+    try {
+      return fs.readdirSync(d).some((f) => /^NMSARC\..*\.pak$/i.test(f));
+    } catch {
+      return false;
+    }
+  };
+  return gameDataDirs().find(hasArchives) ?? null;
 }
 
 // Opens every archive and indexes which one holds each file.

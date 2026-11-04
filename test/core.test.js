@@ -14,6 +14,7 @@ import { applyRewardOp } from '../src/rewards.js';
 import { applyOp, catalog, indexCatalog, shipLock, freighterLock, SHIP_KINDS, FREIGHTER_KINDS, OpError } from '../src/inventory.js';
 import { samplerTexture, packModel, loadModel, readCustomisationGroups, readDescriptor } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
+import { parseLibraryFolders } from '../src/gamedata/itemdb.js';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
 
@@ -286,4 +287,9 @@ test('technology installs only where it fits, once, with the game’s charge', (
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'SHIPSHIELD' }), /already installed/);
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'LASER' }), /can't be installed/);
   assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 1, y: 0, id: 'SHIP_TELEPORT' }), /occupied/);
+});
+
+test('Steam library lists read Windows and Linux paths', () => {
+  const vdf = '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"C:\\\\Program Files (x86)\\\\Steam"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"/run/media/deck/card"\n\t}\n}';
+  assert.deepEqual(parseLibraryFolders(vdf), ['C:/Program Files (x86)/Steam', '/run/media/deck/card']);
 });

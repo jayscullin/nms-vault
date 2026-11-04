@@ -12,6 +12,7 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError, SHIP_KINDS, FREIGHTER_KINDS, shipLock, freighterLock, shipCustomisationIndex } from './inventory.js';
 import { diffTrees } from './validate.js';
+import { steamLibraries } from './gamedata/itemdb.js';
 import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus, sceneExists, isRewardSeed, isInstallable, searchTechnology } from './gamedata/index.js';
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
@@ -27,15 +28,24 @@ export const ACCOUNT_FILE = 'accountdata.hg';
 export const vaultHome = process.env.NMS_VAULT_HOME ?? path.join(os.homedir(), '.nms-vault');
 const backupRoot = path.join(vaultHome, 'backups');
 
+const SAVE_SUBPATH = 'HelloGames/NMS';
+const PROTON_SAVES = `steamapps/compatdata/275850/pfx/drive_c/users/steamuser/AppData/Roaming/${SAVE_SUBPATH}`;
+
 export function saveRoots() {
   if (process.env.NMS_SAVE_ROOT) return [process.env.NMS_SAVE_ROOT];
   const home = os.homedir();
-  if (process.platform === 'darwin') return [path.join(home, 'Library/Application Support/HelloGames/NMS')];
-  if (process.platform === 'win32') return [path.join(process.env.APPDATA ?? path.join(home, 'AppData/Roaming'), 'HelloGames/NMS')];
-  return [
-    path.join(home, '.local/share/Steam/steamapps/compatdata/275850/pfx/drive_c/users/steamuser/AppData/Roaming/HelloGames/NMS'),
-    path.join(home, '.steam/steam/steamapps/compatdata/275850/pfx/drive_c/users/steamuser/AppData/Roaming/HelloGames/NMS'),
-  ];
+  if (process.platform === 'darwin') return [path.join(home, 'Library/Application Support', SAVE_SUBPATH)];
+  if (process.platform === 'win32') return [path.join(process.env.APPDATA ?? path.join(home, 'AppData/Roaming'), SAVE_SUBPATH)];
+  // Linux, Steam Deck and other SteamOS devices: Proton keeps saves with the library the game is in.
+  const roots = steamLibraries().map((lib) => path.join(lib, PROTON_SAVES));
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  return [...new Map(roots.map((r) => [real(r), r])).values()];
 }
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
