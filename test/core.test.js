@@ -11,7 +11,7 @@ import { subsetOf, anchorsOf, encodePng, decodeDds } from '../src/gamedata/dds.j
 import { resolveItem } from '../src/gamedata/itemdb.js';
 import { readStackBases, ruleLimit } from '../src/gamedata/stacks.js';
 import { applyRewardOp } from '../src/rewards.js';
-import { samplerTexture, packModel, loadModel, readCustomisationGroups } from '../src/gamedata/model.js';
+import { samplerTexture, packModel, loadModel, readCustomisationGroups, readDescriptor } from '../src/gamedata/model.js';
 import zlib from 'node:zlib';
 
 const mapping = loadMapping(path.join(import.meta.dirname, '..', 'data', 'mapping.json'));
@@ -185,4 +185,13 @@ test('customisation groups map a group id to the descriptor ids it switches on',
   const groups = readCustomisationGroups(b);
   assert.deepEqual(groups.get('FIGHT_WINGBA'), ['_SUBWINGS_A', '_WINGS_B']);
   assert.equal(groups.size, 1);
+});
+test('descriptor options match scenes by name, even when the id is shorter', () => {
+  const buf = Buffer.from(['', '_SHIP_', '_SHIP_ROY', '_Ship_Royal', '_SHIP_SQU', '_Ship_Squid', '_WINGS_', '_WINGS_A', '_Wings_A', ''].join('\0'), 'latin1');
+  const d = readDescriptor(buf);
+  assert.deepEqual([...d.types], ['_SHIP_', '_WINGS_']);
+  assert.deepEqual([...d.ids], ['_SHIP_ROY', '_SHIP_SQU', '_WINGS_A']);
+  assert.equal(d.names.get('_SHIP_ROYAL'), '_SHIP_ROY');
+  assert.equal(d.names.get('_SHIP_SQUID'), '_SHIP_SQU');
+  assert.equal(d.names.get('_WINGS_A'), '_WINGS_A');
 });

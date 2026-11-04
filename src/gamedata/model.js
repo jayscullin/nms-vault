@@ -126,13 +126,21 @@ export function readCustomisationGroups(b) {
   return groups;
 }
 
-// Descriptor ids (the part names a procedural scene can switch between) and
-// their type prefixes, e.g. "_WINGS_B" of type "_WINGS_".
+// Descriptor options: part ids grouped by type prefix, e.g. "_WINGS_B" of type
+// "_WINGS_". Each record holds its id then its name, and scenes use the name, which
+// can differ ("_SCLASSSHIP_ROY" is named "_SClassShip_Royal"); `names` maps name to id.
 export function readDescriptor(buf) {
-  const strings = buf.toString('latin1').match(/_[A-Z0-9_]+(?=\0)/g) ?? [];
-  const types = new Set(strings.filter((x) => x.endsWith('_')));
-  const ids = new Set(strings.filter((x) => !x.endsWith('_') && [...types].some((t) => x.startsWith(t))));
-  return { ids, types };
+  const strings = buf.toString('latin1').match(/_[A-Za-z0-9_]+(?=\0)/g) ?? [];
+  const upper = (x) => x === x.toUpperCase();
+  const types = new Set(strings.filter((x) => upper(x) && x.endsWith('_')));
+  const isId = (x) => upper(x) && !x.endsWith('_') && [...types].some((t) => x.startsWith(t));
+  const ids = new Set(strings.filter(isId));
+  const names = new Map();
+  strings.forEach((x, i) => {
+    const next = strings[i + 1];
+    if (isId(x) && next && !ids.has(next)) names.set(next.toUpperCase(), x);
+  });
+  return { ids, types, names };
 }
 
 // Decodes the most detailed LOD of a model. Returns per-mesh positions, UVs and
@@ -179,15 +187,16 @@ export function loadModel(archives, scenePath, { parts } = {}) {
     const s = loadScene(name);
     if (s.descriptor && !chosen.size) throw new ModelError('Procedurally generated model');
     const here = s.descriptor
-      ? { ids: new Set([...ctx.ids, ...s.descriptor.ids]), types: new Set([...ctx.types, ...s.descriptor.types]) }
+      ? { ids: new Set([...ctx.ids, ...s.descriptor.ids]), types: new Set([...ctx.types, ...s.descriptor.types]), names: new Map([...ctx.names, ...s.descriptor.names]) }
       : ctx;
     walk(s.root, parent, here, s, depth);
   };
 
   const walk = (n, parent, ctx, s, depth) => {
     const m = mul(parent, nodeMatrix(n.t));
-    if (n.type === 'MESH' && n.attrs.LODLEVEL === '0') meshes.push(decodeMesh(n, m, s));
-    if (n.type === 'REFERENCE' && n.attrs.SCENEGRAPH && !/FLAME|FLARE/i.test(n.attrs.SCENEGRAPH)) {
+    // Effects (engine flames, energy shields) aren't part of the object's shape.
+    if (n.type === 'MESH' && n.attrs.LODLEVEL === '0' && !/SHIELD/i.test(n.attrs.MATERIAL ?? '')) meshes.push(decodeMesh(n, m, s));
+    if (n.type === 'REFERENCE' && n.attrs.SCENEGRAPH && !/FLAME|FLARE|SHIELD/i.test(n.attrs.SCENEGRAPH)) {
       walkScene(norm(n.attrs.SCENEGRAPH), m, ctx, depth + 1);
     }
     // Children that are descriptor options: keep the chosen ones. Every option
@@ -196,7 +205,8 @@ export function loadModel(archives, scenePath, { parts } = {}) {
     // customisation), which are left out and reported.
     const options = new Map();
     for (const c of n.children) {
-      const id = c.name.split('\\').pop().toUpperCase();
+      const name = c.name.split('\\').pop().toUpperCase();
+      const id = ctx.names.get(name) ?? name;
       if (ctx.ids.has(id)) {
         const type = [...ctx.types].filter((t) => id.startsWith(t)).sort((a, b) => b.length - a.length)[0];
         options.set(type, [...(options.get(type) ?? []), c]);
@@ -248,7 +258,7 @@ export function loadModel(archives, scenePath, { parts } = {}) {
     return { name: n.name, material, positions, uvs, indices };
   };
 
-  walkScene(scene, IDENTITY, { ids: new Set(), types: new Set() }, 0);
+  walkScene(scene, IDENTITY, { ids: new Set(), types: new Set(), names: new Map() }, 0);
   if (!meshes.length) throw new ModelError('Model has no meshes');
   // Every recorded part must have been found, or the parts belong to some other model.
   const unused = [...chosen].filter((id) => !used.has(id) && !/_NONE|_NULL/.test(id));
