@@ -152,3 +152,41 @@ test('account file round-trips; rewards need game data', () => {
   assert.equal(S.sessionView(s).kind, 'account');
   assert.throws(() => S.addOp(s, { op: 'unlockRewards', list: 'titles', ids: ['T_TRA2'] }), /isn't one of/);
 });
+
+test('backups can be listed with their size, deleted one at a time and trimmed', async () => {
+  fresh();
+  const stamp = (file, n) => {
+    const s = S.openSession(ACCOUNT, file);
+    S.addOp(s, { op: 'setCurrency', field: 'Units', value: 1000 + n });
+    return S.commit(s);
+  };
+  const start = S.backupsView(ACCOUNT).list.length;
+  await stamp('save.hg', 1);
+  await new Promise((r) => setTimeout(r, 5));
+  await stamp('save.hg', 2);
+  await new Promise((r) => setTimeout(r, 5));
+  await stamp('save3.hg', 3);
+
+  let v = S.backupsView(ACCOUNT);
+  assert.equal(v.list.length, start + 3);
+  assert.ok(v.folder.includes(ACCOUNT));
+  assert.ok(v.list.every((b) => b.size > 0));
+  assert.equal(v.totalSize, v.list.reduce((n, b) => n + b.size, 0));
+
+  // Only ids from the listing are accepted: nothing outside the backup folder can be reached.
+  for (const bad of ['../..', '..', '', 'nope', `${v.list[0].id}/../..`]) assert.throws(() => S.deleteBackup(ACCOUNT, bad), /Unknown backup/);
+  assert.throws(() => S.deleteBackup('../..', v.list[0].id), /Unknown account/);
+  assert.ok(fs.existsSync(path.join(dir, 'save.hg')));
+
+  const gone = v.list.find((b) => b.file === 'save.hg').id;
+  v = S.deleteBackup(ACCOUNT, gone);
+  assert.ok(!v.list.some((b) => b.id === gone));
+
+  v = S.deleteOlderBackups(ACCOUNT);
+  const files = v.list.map((b) => b.file);
+  assert.equal(new Set(files).size, files.length); // one per save
+  assert.ok(files.includes('save.hg') && files.includes('save3.hg'));
+  assert.equal(v.older.count, 0);
+  assert.ok(fs.existsSync(path.join(dir, 'save.hg')));
+  assert.equal(readTree('save.hg').BaseContext.PlayerStateData.Units, 1002);
+});

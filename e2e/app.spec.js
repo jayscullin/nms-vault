@@ -266,6 +266,36 @@ test.describe('save slots', () => {
   });
 });
 
+test.describe('backups page', () => {
+  test('shows where backups live and deletes them', async ({ page }) => {
+    for (const n of [1, 2]) {
+      await openSave(page, 'save.hg');
+      await cell(page, 0, 0, 0).click();
+      await page.locator('.amount-form input').fill(String(n + 1));
+      await page.locator('.amount-form button').click();
+      await reviewAndWrite(page);
+      await page.locator('[data-action="home"]').click();
+    }
+    await page.locator('[data-action="backups"]').first().click();
+    await expect(page.locator('.backup-where')).toContainText('backups');
+    const rows = page.locator('.backup-list li');
+    await expect(rows.nth(1)).toBeVisible(); // earlier tests may have left more
+    const before = await rows.count();
+    await rows.first().locator('[data-action="backup-delete"]').click();
+    expect(await confirmDialog(page)).toContain('can’t be restored');
+    await expect(rows).toHaveCount(before - 1);
+    const trim = page.locator('[data-action="backup-trim"]');
+    if (await trim.isEnabled()) {
+      await trim.click();
+      expect(await confirmDialog(page)).toContain('newest backup of each save will be kept');
+      await expect(trim).toBeDisabled();
+    }
+    const names = await rows.locator('b').allTextContents();
+    expect(new Set(names).size).toBe(names.length); // at most one left per save
+    expect(verifyFile('save.hg').ok).toBe(true);
+  });
+});
+
 test.describe('account rewards', () => {
   test('opens the account file and explains when game data is missing', async ({ page }) => {
     await home(page);

@@ -805,13 +805,55 @@ export async function commit(s) {
 // ---- Backups ----------------------------------------------------------------
 
 export function listBackups(accountId) {
+  if (!listAccounts().some((a) => a.id === accountId)) throw new OpError('Unknown account');
   const dir = path.join(backupRoot, accountId);
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
     .filter((d) => fs.existsSync(path.join(dir, d, 'backup.json')))
-    .map((d) => ({ id: d, ...JSON.parse(fs.readFileSync(path.join(dir, d, 'backup.json'), 'utf8')) }))
+    .map((d) => ({ id: d, ...JSON.parse(fs.readFileSync(path.join(dir, d, 'backup.json'), 'utf8')), size: folderSize(path.join(dir, d)) }))
     .sort((a, b) => b.created.localeCompare(a.created));
+}
+
+const folderSize = (dir) => fs.readdirSync(dir).reduce((n, f) => n + fs.statSync(path.join(dir, f)).size, 0);
+
+// The backups page: where they live, what they take up, and what trimming would free.
+export function backupsView(accountId) {
+  const list = listBackups(accountId);
+  const extra = olderBackups(list);
+  return {
+    folder: path.join(backupRoot, accountId),
+    totalSize: list.reduce((n, b) => n + b.size, 0),
+    list,
+    older: { count: extra.length, size: extra.reduce((n, b) => n + b.size, 0) },
+  };
+}
+
+// Everything but the newest backup of each save (the list is newest first).
+function olderBackups(list) {
+  const seen = new Set();
+  return list.filter((b) => {
+    if (seen.has(b.file)) return true;
+    seen.add(b.file);
+    return false;
+  });
+}
+
+function removeBackup(accountId, id) {
+  fs.rmSync(path.join(backupRoot, accountId, id), { recursive: true });
+}
+
+// Permanently removes one backup. Only ids from the listing are accepted, so a
+// request can never reach outside the backup folder.
+export function deleteBackup(accountId, backupId) {
+  if (!listBackups(accountId).some((b) => b.id === backupId)) throw new OpError('Unknown backup');
+  removeBackup(accountId, backupId);
+  return backupsView(accountId);
+}
+
+export function deleteOlderBackups(accountId) {
+  for (const b of olderBackups(listBackups(accountId))) removeBackup(accountId, b.id);
+  return backupsView(accountId);
 }
 
 async function restoreFiles(backupDir, targetDir) {

@@ -53,7 +53,9 @@ const routes = {
     return { ok, checks, ops: s.ops.map((o) => o.op), warnings: [...notices, ...s.warnings] };
   },
   'POST /api/commit': (b) => saves.commit(saves.getSession(b.sessionId)),
-  'POST /api/backups': (b) => saves.listBackups(b.account),
+  'POST /api/backups': (b) => saves.backupsView(b.account),
+  'POST /api/backup-delete': (b) => saves.deleteBackup(b.account, b.backup),
+  'POST /api/backup-trim': (b) => saves.deleteOlderBackups(b.account),
   'POST /api/restore': (b) => saves.restoreBackup(b.account, b.backup),
 };
 

@@ -1133,21 +1133,32 @@ async function commit() {
   });
 }
 
+const fileSize = (n) => (n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
 async function openBackups(account) {
   await run(async () => {
-    const list = await api('/api/backups', { account });
+    const { folder, totalSize, list, older } = await api('/api/backups', { account });
     modal(`
-      <h2>Backups</h2>
+      <h2 class="with-icon">${icon('backups', 20)}Backups</h2>
       <p class="muted">Taken automatically before every write and restore.</p>
+      <p class="backup-where"><span class="muted small">Saved in</span><span class="mono">${esc(folder)}</span></p>
       ${
         list.length
-          ? `<ul class="checks">${list
-              .map((b) => `<li><span>⟲</span><span><b>${esc(b.file)}</b> · ${new Date(b.created).toLocaleString()}<br><small class="muted">${esc(b.reason)}</small></span>
-                 <small><button class="btn small" data-action="restore" data-account="${esc(account)}" data-backup="${esc(b.id)}">Restore</button></small></li>`)
+          ? `<div class="backup-summary">
+               <span class="mono">${list.length} backup${list.length === 1 ? '' : 's'} · ${fileSize(totalSize)}</span>
+               <button class="btn small with-icon" data-action="backup-trim" data-account="${esc(account)}" data-count="${older.count}" data-size="${fileSize(older.size)}" ${older.count ? '' : 'disabled title="Each save only has its newest backup"'}>${icon('clear', 14)}Clear old backups</button>
+             </div>
+             <ul class="backup-list">${list
+              .map((b) => `<li>
+                 <span><b class="mono">${esc(b.file)}</b> <span class="muted mono small">· ${new Date(b.created).toLocaleString()} · ${fileSize(b.size)}</span><br><small class="muted">${esc(b.reason)}</small></span>
+                 <span class="stack-row">
+                   <button class="btn small with-icon" data-action="restore" data-account="${esc(account)}" data-backup="${esc(b.id)}">${icon('restore', 14)}Restore</button>
+                   <button class="btn small danger icon-btn" data-action="backup-delete" data-account="${esc(account)}" data-backup="${esc(b.id)}" data-file="${esc(b.file)}" title="Delete this backup" aria-label="Delete the ${esc(b.file)} backup from ${esc(new Date(b.created).toLocaleString())}">${icon('trash', 14)}</button>
+                 </span></li>`)
               .join('')}</ul>`
           : '<p>No backups yet.</p>'
       }
-      <footer><button class="btn" data-action="close-modal">Close</button></footer>`);
+      <footer><button class="btn" data-action="close-modal">Close</button></footer>`, { wide: true });
   });
 }
 
@@ -1267,6 +1278,18 @@ document.addEventListener('click', async (e) => {
       return toggleDetails();
     case 'backups':
       return openBackups(d.account);
+    case 'backup-delete':
+      if (!(await ask(`Permanently delete this backup of ${d.file}? It can’t be restored afterwards. Your current save isn’t affected.`, { ok: 'Delete', danger: true }))) return;
+      return run(async () => {
+        await api('/api/backup-delete', { account: d.account, backup: d.backup });
+        await openBackups(d.account);
+      });
+    case 'backup-trim':
+      if (!(await ask(`Permanently delete ${d.count} old backup${d.count === '1' ? '' : 's'}, freeing ${d.size}? The newest backup of each save will be kept. Your current saves aren’t affected.`, { ok: 'Clear', danger: true }))) return;
+      return run(async () => {
+        await api('/api/backup-trim', { account: d.account });
+        await openBackups(d.account);
+      });
     case 'restore':
       if (!(await ask('Restore this backup over the current save? The current files are backed up first.', { ok: 'Restore' }))) return;
       return run(async () => {
