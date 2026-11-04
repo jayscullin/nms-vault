@@ -59,13 +59,26 @@ test('remove, recharge and repair technology, then write', async ({ page }) => {
 
 test('learn all Korvax words', async ({ page }) => {
   await openSave(page, 'save.hg');
-  await page.locator('[data-select="knowledge"]').click();
+  await page.locator('[data-select="words"]').click();
+  await expect(page.getByRole('heading', { name: 'Words' })).toBeVisible();
   await page.locator('[data-action="learn-words"][data-race="2"]').click();
   await expect(page.locator('.word-card').filter({ hasText: 'Korvax' })).toContainText('All known');
   await reviewAndWrite(page);
   expect(verifyFile('save.hg').ok).toBe(true);
   const groups = readSave('save.hg').BaseContext.PlayerStateData.KnownWordGroups;
   expect(groups.filter((g) => g.Group.startsWith('^EXP_') && g.Races[2]).length).toBeGreaterThan(100);
+});
+
+test('blueprints have their own page, and searching keeps focus in its search box', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await page.locator('[data-select="blueprints"]').click();
+  await expect(page.getByRole('heading', { name: 'Blueprints' })).toBeVisible();
+  await expect(page.locator('.word-card')).toHaveCount(0);
+  const box = page.getByRole('searchbox', { name: 'Search blueprints' });
+  await box.click();
+  await page.keyboard.type('ab');
+  await expect(box).toHaveValue('ab');
+  await expect(box).toBeFocused();
 });
 
 test('unlock a title in the account file', async ({ page }) => {

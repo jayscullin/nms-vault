@@ -291,8 +291,9 @@ function renderSidebar() {
     <nav class="sidebar">
       <div class="search"><input type="search" id="search" placeholder="Find items…" value="${esc(state.search)}" aria-label="Find items"></div>
       <div class="nav-group">
-        <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span class="with-icon">${icon('items', 14)}All items</span></button>
-        <button class="nav-item ${state.selected === 'knowledge' ? 'active' : ''}" data-select="knowledge"><span class="with-icon">${icon('knowledge', 14)}Knowledge</span><span class="count">words &amp; blueprints</span></button>
+        <button class="nav-item ${state.selected === 'items' ? 'active' : ''}" data-select="items"><span class="with-icon">${icon('inventory', 14)}Inventory</span></button>
+        <button class="nav-item ${state.selected === 'words' ? 'active' : ''}" data-select="words"><span class="with-icon">${icon('words', 14)}Words</span></button>
+        <button class="nav-item ${state.selected === 'blueprints' ? 'active' : ''}" data-select="blueprints"><span class="with-icon">${icon('blueprints', 14)}Blueprints</span></button>
       </div>
       ${[...groups]
         .map(
@@ -489,7 +490,7 @@ function renderItems() {
     .filter((it) => !q || matches(it.id, q))
     .sort((a, b) => a.type.localeCompare(b.type) || b.total - a.total);
   return `
-    <h2>All items</h2>
+    <h2 class="with-icon">${icon('inventory', 22)}Inventory</h2>
     <p class="sub">${rows.length} distinct items across every inventory${q ? ` matching “${esc(state.search)}”` : ''}. Click a location to jump to it.</p>
     <table class="items-table">
       <thead><tr><th>Item</th><th>Type</th><th class="num">Total</th><th>Where</th></tr></thead>
@@ -649,7 +650,8 @@ function renderEditor() {
   app.innerHTML = `
     ${renderSidebar()}
     <section class="content">${renderCurrencies()}${
-      state.selected === 'knowledge' ? renderKnowledge()
+      state.selected === 'words' ? renderWords()
+        : state.selected === 'blueprints' ? renderBlueprints()
         : state.selected?.startsWith('group:') ? renderGroup(state.selected.slice(6))
         : state.selected === 'items' || !c ? renderItems()
         : renderContainer(c)
@@ -664,7 +666,7 @@ function render() {
   else renderHome();
 }
 
-// ---- knowledge (per save) ------------------------------------------------------
+// ---- words and blueprints (per save) ------------------------------------------------------
 
 state.bpFilter = 'unknown';
 state.bpSel = new Set();
@@ -678,28 +680,31 @@ function shownBlueprints() {
   });
 }
 
-function renderKnowledge() {
+function renderWords() {
+  const k = state.view.knowledge;
+  return `
+    <h2 class="with-icon">${icon('words', 22)}Words</h2>
+    <p class="sub">Alien words learned in this save. Only entries from the game’s own word table are added.</p>
+    <div class="word-grid">${k.words.map((w) => `
+      <div class="word-card">
+        <b>${esc(w.name)}</b><span class="mono muted">${fmt(w.known)} / ${fmt(w.total)} words</span>
+        <span class="bar"><i style="width:${w.total ? (w.known / w.total) * 100 : 0}%"></i></span>
+        <button class="btn small" data-action="learn-words" data-race="${w.race}" ${w.known >= w.total ? 'disabled' : ''}>${w.known >= w.total ? 'All known' : 'Learn all'}</button>
+      </div>`).join('')}</div>`;
+}
+
+function renderBlueprints() {
   const k = state.view.knowledge;
   const shown = shownBlueprints();
   const unknownShown = shown.filter((b) => !b.known);
   const sel = [...state.bpSel].filter((id) => k.blueprints.some((b) => b.id === id && !b.known));
   return `
-    <h2>Knowledge</h2>
-    <p class="sub">Words and blueprints are per save. Only entries from the game’s own word table and blueprint trees are added.</p>
+    <h2 class="with-icon">${icon('blueprints', 22)}Blueprints</h2>
+    <p class="sub">Blueprints learned in this save: <span class="mono">${fmt(k.blueprints.filter((b) => b.known).length)} / ${fmt(k.blueprints.length)}</span>. Only entries from the game’s own blueprint trees are added.</p>
     <section class="inv">
-      <h3>Alien words</h3>
-      <div class="word-grid">${k.words.map((w) => `
-        <div class="word-card">
-          <b>${esc(w.name)}</b><span class="muted small">${fmt(w.known)} / ${fmt(w.total)} words</span>
-          <span class="bar"><i style="width:${w.total ? (w.known / w.total) * 100 : 0}%"></i></span>
-          <button class="btn small" data-action="learn-words" data-race="${w.race}" ${w.known >= w.total ? 'disabled' : ''}>${w.known >= w.total ? 'All known' : 'Learn all'}</button>
-        </div>`).join('')}</div>
-    </section>
-    <section class="inv">
-      <h3>Blueprints <span class="muted">${fmt(k.blueprints.filter((b) => b.known).length)} / ${fmt(k.blueprints.length)} learned</span></h3>
       <div class="reward-bar">
         <div class="tabs">${['unknown', 'known', 'all'].map((f) => `<button class="tab small ${f === state.bpFilter ? 'active' : ''}" data-bp-filter="${f}">${f === 'unknown' ? 'Not learned' : f === 'known' ? 'Learned' : 'All'}</button>`).join('')}</div>
-        <input type="search" id="search" placeholder="Search blueprints…" value="${esc(state.search)}" aria-label="Search blueprints">
+        <input type="search" id="bp-search" placeholder="Search blueprints…" value="${esc(state.search)}" aria-label="Search blueprints">
       </div>
       <div class="reward-actions">
         <button class="btn primary" data-action="learn-selected" ${sel.length ? '' : 'disabled'}>Learn selected (${sel.length})</button>
@@ -1333,11 +1338,12 @@ document.addEventListener('submit', (e) => {
 });
 
 document.addEventListener('input', (e) => {
-  if (e.target.id !== 'search') return;
+  const { id } = e.target;
+  if (id !== 'search' && id !== 'bp-search') return;
   state.search = e.target.value;
   const pos = e.target.selectionStart;
   const refocus = () => {
-    const box = $('#search');
+    const box = document.getElementById(id);
     box?.focus();
     box?.setSelectionRange(pos, pos);
   };
@@ -1424,7 +1430,7 @@ function targetInventory(ok) {
 
 async function onShortcut(e) {
   const v = state.view;
-  const inEditor = v && v.kind !== 'account' && !['knowledge', 'items'].includes(state.selected);
+  const inEditor = v && v.kind !== 'account' && !['words', 'blueprints', 'items'].includes(state.selected);
   const selected = state.slot && findInv(state.slot.inv);
   const s = selected && slotAt(selected, state.slot.x, state.slot.y);
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;

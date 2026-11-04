@@ -27,12 +27,13 @@ First run of the browser tests: `npm install && npx playwright install chromium`
 - Finds your saves automatically (macOS, Windows, Linux/Proton), or uses `NMS_SAVE_ROOT`.
 - Shows every inventory as its in-game grid: exosuit, starships, multi-tools, freighter, storage containers, exocraft, and base storage.
 - Real item names, descriptions and icons, read directly from your installed game (see below).
-- **All items** view: totals for each item across every inventory, with jump-to-location. Search matches names and IDs.
+- **Inventory** view: totals for each item across every inventory, with jump-to-location. Search matches names and IDs.
 - Edits: set stack amounts, fill stacks, remove items, drag to rearrange or transfer (onto a cell, or onto a container in the sidebar), rename ships, multi-tools and containers, and set Units, Nanites and Quicksilver.
 - **Add items:** select an empty cell and search the game's catalogue of products and substances. New stacks copy the slot format of an existing slot in the same save and get the game's stack limit for that inventory. Procedural items, which need a game-generated seed, can't be added.
 - **Technology:** recharge tech the game data marks as chargeable, repair damaged tech, and remove tech that isn't core. Core tech is what the game won't let you dismantle (Life Support, Launch Thruster, Pulse Engine and so on), and it can't be removed. Broken-slot placeholders on salvaged multi-tools and ships can be removed, which frees the slot. Both flags come from the game's technology table, and if they can't be read, those edits are disabled.
-- **Account rewards:** unlock expedition rewards, Twitch rewards, Quicksilver shop items and player titles for the whole account, as NomNom does. Only entries in the game's own tables can be unlocked, the lists keep the game's order, and nothing else in `accountdata.hg` changes. It goes through the same review, backup and verification as saves.
-- **Knowledge (per save):** learn every word for the Gek, Vy'keen, Korvax, Atlas or Autophage, and learn blueprints from the game's unlockable blueprint trees (all, filtered, or picked one by one).
+- **Rewards:** from the top bar, for the platform of the open save (or a platform you choose). Unlock expedition rewards, Twitch rewards, Quicksilver shop items and player titles for the whole account, as NomNom does. Only entries in the game's own tables can be unlocked, the lists keep the game's order, and nothing else in `accountdata.hg` changes. It goes through the same review, backup and verification as saves.
+- **Words (per save):** learn every word for the Gek, Vy'keen, Korvax, Atlas or Autophage.
+- **Blueprints (per save):** learn blueprints from the game's unlockable blueprint trees (all, filtered, or picked one by one).
 - **Save slots:** copy, move, swap or delete saves between slots. The slots involved are backed up together first, and the result is verified.
   - A save copied or moved into another slot gets a new save ID (in the save and its manifest). Without one, the game sees two slots as "multiple versions of this save" and shows a cross-save conflict. The home screen flags any slots that share an ID.
   - Each slot holds two saves. The game shows and loads the one with the newer manifest time, and NMS Vault orders them the same way.
