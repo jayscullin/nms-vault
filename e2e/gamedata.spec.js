@@ -19,19 +19,40 @@ test('items show real names, and hovering shows the description', async ({ page 
   await expect(page.locator('#item-tip')).toBeHidden();
 });
 
-test('add an item from the catalogue to an empty cell', async ({ page }) => {
+test('an empty cell lists what fits, and clicking one adds a full stack ready to adjust', async ({ page }) => {
   await openSave(page, 'save.hg');
   await cell(page, 0, 5, 3).click();
-  await page.locator('[data-action="add-item"]').click();
-  await page.locator('#add-search').fill('Ferrite Dust');
-  const row = page.locator('.add-row').filter({ hasText: 'Ferrite Dust' }).first();
-  await row.locator('input[type="number"]').fill('123');
-  await row.locator('[data-action="add-confirm"]').click();
+  await expect(page.locator('.cell-item').first()).toBeVisible();
+  await page.locator('#cell-search').fill('Ferrite Dust');
+  const row = page.locator('.cell-item').filter({ hasText: 'Ferrite Dust' }).first();
+  await row.click();
   await expect(cell(page, 0, 5, 3).locator('.tile')).toBeVisible();
+  await expect(page.locator('.amount-form input')).toBeFocused();
+  await page.keyboard.type('123');
+  await page.keyboard.press('Enter');
   await reviewAndWrite(page);
   expect(verifyFile('save.hg').ok).toBe(true);
   const added = exosuitSlots(readSave('save.hg')).find((s) => s.Index.X === 5 && s.Index.Y === 3);
   expect([added.Id, added.Amount, added.MaxAmount]).toEqual(['^LAND1', 123, 9999]);
+});
+
+test('a technology slot only offers technology that fits, and installs it as the game writes it', async ({ page }) => {
+  await openSave(page, 'save.hg');
+  await page.locator('.inv').nth(1).scrollIntoViewIfNeeded();
+  await cell(page, 1, 4, 0).click();
+  const items = page.locator('.cell-item');
+  await expect(items.first()).toBeVisible();
+  const names = await items.locator('b').allTextContents();
+  // Exosuit technology only: no multi-tool or ship parts, no stand-ins.
+  expect(names).toContain('Rocket Boots');
+  for (const wrong of ['Advanced Mining Laser', 'Vesper Sail', 'Upgrade Module', 'Corrupt Module']) expect(names).not.toContain(wrong);
+  await items.filter({ hasText: 'Rocket Boots' }).click();
+  await expect(cell(page, 1, 4, 0).locator('.tile')).toBeVisible();
+  await reviewAndWrite(page);
+  expect(verifyFile('save.hg').ok).toBe(true);
+  const grid = readSave('save.hg').BaseContext.PlayerStateData.Inventory_TechOnly.Slots;
+  const added = grid.find((s) => s.Index.X === 4 && s.Index.Y === 0);
+  expect([added.Id, added.Type.InventoryType, added.Amount, added.MaxAmount, added.DamageFactor, added.FullyInstalled]).toEqual(['^UT_JUMP', 'Technology', -1, 100, 0, true]); // no charge to fill: as the game writes it
 });
 
 test('remove, recharge and repair technology, then write', async ({ page }) => {

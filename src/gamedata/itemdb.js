@@ -9,7 +9,7 @@ import { readTable } from './mbin.js';
 import { readStackBases, readMultipliers, MULTIPLIER_OFFSETS } from './stacks.js';
 
 const TABLES = 'metadata/reality/tables/';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const SOURCES = [
   { file: 'nms_reality_gcsubstancetable.mbin', type: 'Substance' },
   { file: 'nms_reality_gcproducttable.mbin', type: 'Product' },
@@ -365,6 +365,14 @@ const TECH_FLAGS = [
   { name: 'chargeable', offset: 710, on: ['ENERGY', 'PROTECT', 'LAUNCHER', 'SHIPJUMP1', 'SHIPSHIELD', 'LASER'], off: ['JET1', 'SUMMON_SUIT', 'ATLASSUIT', 'UT_PROTECT'] },
 ];
 
+// Whole-number columns, trusted only if every known example reads as expected:
+//   techCategory  what the technology installs into (see TECH_CATEGORIES in inventory.js)
+//   charge        its MaxAmount in a save
+const TECH_COLUMNS = [
+  { name: 'techCategory', offset: 404, known: { SCAN1: 1, LASER: 1, ENERGY: 2, SHIPJUMP1: 0, F_HYPERDRIVE: 6, VEHICLE_ENGINE: 8, SUB_ENGINE: 10, MECH_ENGINE: 11, SHIPJUMP_ALIEN: 13, SHIPJUMP_ROBO: 15 } },
+  { name: 'charge', offset: 408, known: { LASER: 200, TERRAINEDITOR: 600, CANNON: 500, HYPERDRIVE: 120, ENERGY: 100, PROTECT: 80, VEHICLE_ENGINE: 300, SUB_ENGINE: 400 } },
+];
+
 function readCoreFlags(table, col, items) {
   const ids = table.records.map((rec) => rec.find((x) => x.off === col.id)?.s);
   const result = { table: CORE_FLAG.file };
@@ -384,6 +392,18 @@ function readCoreFlags(table, col, items) {
       if (items[id]) items[id][flag.name] = values[r] === 1;
     });
     result[flag.name] = values.filter((v) => v === 1).length;
+  }
+  for (const col2 of TECH_COLUMNS) {
+    const value = (r) => table.buf.readUInt32LE(table.start + r * table.size + col2.offset);
+    const looksRight = col2.offset + 4 <= table.size && Object.entries(col2.known).every(([id, want]) => value(ids.indexOf(id)) === want);
+    if (!looksRight) {
+      result[col2.name] = 'not recognised; edits that need it are disabled';
+      continue;
+    }
+    ids.forEach((id, r) => {
+      if (items[id]) items[id][col2.name] = value(r);
+    });
+    result[col2.name] = 'read';
   }
   return result;
 }

@@ -43,7 +43,7 @@ export function describe(saveId) {
 export function itemInfo(saveId) {
   if (!db?.available) return null;
   const r = resolveItem(db.items, saveId);
-  return r && { key: r.key, type: r.type, stack: r.stack, core: r.core, chargeable: r.chargeable, procedural: Boolean(r.procedural), alias: r.alias ?? null };
+  return r && { key: r.key, type: r.type, stack: r.stack, core: r.core, chargeable: r.chargeable, charge: r.charge, procedural: Boolean(r.procedural), alias: r.alias ?? null };
 }
 
 // Unlockable account rewards with display info, or null without game data.
@@ -100,6 +100,33 @@ export function searchItems(query, limit = 40) {
   }
   hits.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
   return hits.slice(0, limit);
+}
+
+// Technology that can go in a grid taking these categories: named, not procedural (that
+// needs a game-made seed), not core, with every fact the slot needs confirmed by the game
+// data. Stand-ins aren't real installs: broken-slot markers, and the "Upgrade Module"
+// entries that represent a procedural upgrade.
+const STAND_IN_ID = /DMG/;
+const STAND_IN_SUBTITLE = /damaged|incomplete|salvage/i;
+const installable = (id, item, categories) =>
+  item.type === 'Technology' && item.name && !item.procedural && !item.alias && item.core === false && typeof item.chargeable === 'boolean' &&
+  item.charge > 0 && categories.includes(item.techCategory) && item.name !== 'Upgrade Module' && !STAND_IN_ID.test(id) && !STAND_IN_SUBTITLE.test(item.subtitle ?? '');
+
+export const isInstallable = (saveId, categories) => {
+  const r = db?.available && resolveItem(db.items, saveId);
+  return Boolean(r && !String(saveId).includes('#') && installable(r.key, r, categories));
+};
+
+export function searchTechnology(query, categories) {
+  if (!db?.available) return [];
+  const q = String(query ?? '').trim().toLowerCase();
+  const hits = [];
+  for (const [id, item] of Object.entries(db.items)) {
+    if (!installable(id, item, categories)) continue;
+    if (q && !item.name.toLowerCase().includes(q) && !id.toLowerCase().includes(q)) continue;
+    hits.push({ id, name: item.name, subtitle: item.subtitle, type: item.type, icon: Boolean(item.icon) });
+  }
+  return hits.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export const isAddable = (saveId) => {

@@ -45,6 +45,16 @@ export const FREIGHTER_KINDS = [
 ].map(([label, scene]) => ({ label, scene }));
 const REWARD_SEED_MAX = 0xffn; // hand-set seeds such as 0x0 or 0x6 mark reward ships
 
+// Technology categories (from the game's technology table) each grid accepts.
+const TECH = { weapon: [1], suit: [2], freighter: [6], ship: [0, 14, 16], robotShip: [14, 15, 16], livingShip: [13] };
+const VEHICLE_TECH = { 2: [8, 9, 12], 5: [10], 6: [11] }; // Colossus, Nautilon, Minotaur
+const OTHER_VEHICLE_TECH = [8, 12];
+function shipTech(file) {
+  if (/BIOPARTS/.test(file)) return TECH.livingShip;
+  if (/SENTINELSHIP/.test(file)) return TECH.robotShip;
+  return /CORVETTE|BIGGS/.test(file) ? [] : TECH.ship;
+}
+
 const VEHICLES = ['Roamer', 'Nomad', 'Colossus', 'Pilgrim', 'Exocraft 5', 'Nautilon', 'Minotaur'];
 const SPECIAL = [
   ['CookingIngredientsInventory', 'Ingredient Storage'],
@@ -95,17 +105,17 @@ export function catalog(tree) {
     containers.push(c);
     return c;
   };
-  const inv = (c, label, path, kind) => {
+  const inv = (c, label, path, kind, techFits) => {
     const v = get(tree, path);
     if (!v?.Slots || num(v.Width) * num(v.Height) === 0) return;
     if (kind === 'legacy' && v.Slots.length === 0) return;
-    c.inventories.push({ id: path.join('/'), label: kind === 'legacy' ? `${label} (legacy)` : label, path, kind, where: `${c.title} · ${label}` });
+    c.inventories.push({ id: path.join('/'), label: kind === 'legacy' ? `${label} (legacy)` : label, path, kind, techFits, where: `${c.title} · ${label}` });
   };
 
   const exo = container('Exosuit', 'Exosuit');
   inv(exo, 'General', [...PS, 'Inventory'], 'general');
   inv(exo, 'Cargo', [...PS, 'Inventory_Cargo'], 'legacy');
-  inv(exo, 'Technology', [...PS, 'Inventory_TechOnly'], 'tech');
+  inv(exo, 'Technology', [...PS, 'Inventory_TechOnly'], 'tech', TECH.suit);
 
   (ps.ShipOwnership ?? []).forEach((s, i) => {
     const file = s.Resource?.Filename;
@@ -120,7 +130,7 @@ export function catalog(tree) {
     c.subtitle = shipType(file);
     inv(c, 'General', [...base, 'Inventory'], 'general');
     inv(c, 'Cargo', [...base, 'Inventory_Cargo'], 'legacy');
-    inv(c, 'Technology', [...base, 'Inventory_TechOnly'], 'tech');
+    inv(c, 'Technology', [...base, 'Inventory_TechOnly'], 'tech', shipTech(file));
   });
 
   (ps.Multitools ?? []).forEach((m, i) => {
@@ -130,14 +140,14 @@ export function catalog(tree) {
       current: num(ps.ActiveMultioolIndex) === i,
       model: { scene: toDisplay(m.Resource.Filename), parts: [] },
     });
-    inv(c, 'Technology', [...PS, 'Multitools', i, 'Store'], 'tech');
+    inv(c, 'Technology', [...PS, 'Multitools', i, 'Store'], 'tech', TECH.weapon);
   });
 
   const fr = container('Freighter', 'Freighter', { model: ps.CurrentFreighter?.Filename ? { scene: toDisplay(ps.CurrentFreighter.Filename), parts: [] } : undefined, freighter: Boolean(ps.CurrentFreighter?.Filename) });
   fr.subtitle = FREIGHTER_KINDS.find((k) => k.scene === ps.CurrentFreighter?.Filename)?.label;
   inv(fr, 'General', [...PS, 'FreighterInventory'], 'general');
   inv(fr, 'Cargo', [...PS, 'FreighterInventory_Cargo'], 'legacy');
-  inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech');
+  inv(fr, 'Technology', [...PS, 'FreighterInventory_TechOnly'], 'tech', TECH.freighter);
 
   for (let n = 1; n <= 10; n++) {
     const key = `Chest${n}Inventory`;
@@ -152,7 +162,7 @@ export function catalog(tree) {
   (ps.VehicleOwnership ?? []).forEach((v, i) => {
     const c = container('Exocraft', displayName(v.Name) || VEHICLES[i] || `Exocraft ${i + 1}`);
     inv(c, 'General', [...PS, 'VehicleOwnership', i, 'Inventory'], 'general');
-    inv(c, 'Technology', [...PS, 'VehicleOwnership', i, 'Inventory_TechOnly'], 'tech');
+    inv(c, 'Technology', [...PS, 'VehicleOwnership', i, 'Inventory_TechOnly'], 'tech', VEHICLE_TECH[i] ?? OTHER_VEHICLE_TECH);
   });
 
   for (const [key, label] of SPECIAL) {
@@ -212,6 +222,7 @@ export function inventoryView(tree, info) {
     id: info.id,
     label: info.label,
     kind: info.kind,
+    addable: BULK.has(info.kind) || Boolean(info.techFits?.length),
     width: num(v.Width),
     height: num(v.Height),
     stackGroup: v.StackSizeGroup?.InventoryStackSizeGroup ?? null,
@@ -281,6 +292,26 @@ function amountInt(value, min, max, what) {
   return n;
 }
 
+// Installs technology the way the game shows it: full charge if it holds any, otherwise
+// the -1 the game writes; one of each per grid. The slot copies this save's own format.
+function addTechnology(loc, id, stacks, warnings) {
+  if (!stacks.installable(`^${id}`, loc.info.techFits)) throw new OpError(`^${id} can't be installed in ${loc.info.where}`);
+  if (loc.inv.Slots.some((s) => s.Id === `^${id}`)) throw new OpError(`^${id} is already installed in ${loc.info.where}`);
+  const template = stacks.template('Technology');
+  if (!template) throw new OpError('There is no technology anywhere in this save to copy the slot format from');
+  const { charge, chargeable } = stacks.item(`^${id}`);
+  const slot = parse(stringify(template));
+  slot.Id = `^${id}`;
+  slot.Amount = setNum(slot.Amount, chargeable ? charge : -1);
+  slot.MaxAmount = setNum(slot.MaxAmount, charge);
+  slot.DamageFactor = setNum(slot.DamageFactor, 0);
+  slot.FullyInstalled = true;
+  if ('AddedAutomatically' in slot) slot.AddedAutomatically = false;
+  setIndex(slot, loc.x, loc.y);
+  loc.inv.Slots.push(slot);
+  return { touched: [[...loc.info.path, 'Slots']], warnings };
+}
+
 // Applies one op to the tree in place. Returns { touched: [path...], warnings: [] }.
 // Callers apply ops to a scratch tree; on OpError the tree may be partially modified.
 // `stacks` supplies the game's rules:
@@ -347,9 +378,10 @@ export function applyOp(tree, cat, stacks, op) {
       const loc = locate(tree, cat, op);
       if (loc.slot) throw new OpError('That cell is already occupied');
       assertCellUsable(loc);
-      if (!BULK.has(loc.info.kind)) throw new OpError(`${loc.info.where} can't receive items`);
       const id = String(op.id ?? '').replace(/^\^/, '');
       if (!/^[A-Z0-9_]+$/.test(id)) throw new OpError('Unknown item');
+      if (loc.info.techFits?.length) return addTechnology(loc, id, stacks, warnings);
+      if (!BULK.has(loc.info.kind)) throw new OpError(`${loc.info.where} can't receive items`);
       const info = stacks.item(`^${id}`);
       if (!info || !stacks.addable(`^${id}`)) throw new OpError(`^${id} can't be added: only named products and substances from the game data can be`);
       // Copy a real slot from this save so new slots have exactly the fields this game version writes.

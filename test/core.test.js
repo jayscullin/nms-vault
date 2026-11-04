@@ -266,3 +266,24 @@ test('descriptor options match scenes by name, even when the id is shorter', () 
   assert.equal(d.names.get('_SHIP_SQUID'), '_SHIP_SQU');
   assert.equal(d.names.get('_WINGS_A'), '_WINGS_A');
 });
+
+test('technology installs only where it fits, once, with the game’s charge', () => {
+  const tech = (Id, Amount, MaxAmount, X) => ({ Type: { InventoryType: 'Technology' }, Id, Amount, MaxAmount, DamageFactor: 0, FullyInstalled: true, AddedAutomatically: true, Index: { X, Y: 0 } });
+  const t = fleet();
+  const grid = PS_OF(t).ShipOwnership[0].Inventory_TechOnly;
+  Object.assign(grid, { Width: 3, Height: 1, ValidSlotIndices: [0, 1, 2].map((X) => ({ X, Y: 0 })), Slots: [tech('^SHIPJUMP1', 50, 200, 0)] });
+  const facts = { '^SHIPSHIELD': { chargeable: true, charge: 200 }, '^SHIP_TELEPORT': { chargeable: false, charge: 100 } };
+  const stacks = { ...shipPolicy, item: (id) => facts[id] ?? null, installable: (id, fits) => id in facts && fits.includes(0), template: () => tech('^X', 1, 1, 0) };
+  const inv = 'BaseContext/PlayerStateData/ShipOwnership/0/Inventory_TechOnly';
+  const cat = indexCatalog(catalog(t));
+  applyOp(t, cat, stacks, { op: 'add', inv, x: 1, y: 0, id: 'SHIPSHIELD' });
+  applyOp(t, cat, stacks, { op: 'add', inv, x: 2, y: 0, id: '^SHIP_TELEPORT' });
+  const [, charged, plain] = grid.Slots;
+  assert.deepEqual([charged.Id, charged.Amount, charged.MaxAmount, charged.AddedAutomatically], ['^SHIPSHIELD', 200, 200, false]);
+  assert.deepEqual([plain.Id, plain.Amount, plain.MaxAmount, plain.Index.X], ['^SHIP_TELEPORT', -1, 100, 2]);
+  grid.ValidSlotIndices.push({ X: 3, Y: 0 });
+  grid.Width = 4;
+  assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'SHIPSHIELD' }), /already installed/);
+  assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 3, y: 0, id: 'LASER' }), /can't be installed/);
+  assert.throws(() => applyOp(t, cat, stacks, { op: 'add', inv, x: 1, y: 0, id: 'SHIP_TELEPORT' }), /occupied/);
+});

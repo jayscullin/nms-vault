@@ -12,7 +12,7 @@ import { deobfuscate, obfuscate, loadMapping } from './keys.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError, SHIP_KINDS, FREIGHTER_KINDS, shipLock, freighterLock, shipCustomisationIndex } from './inventory.js';
 import { diffTrees } from './validate.js';
-import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus, sceneExists, isRewardSeed } from './gamedata/index.js';
+import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems, rewardCatalog, knowledgeCatalog, modelStatus, sceneExists, isRewardSeed, isInstallable, searchTechnology } from './gamedata/index.js';
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
@@ -234,6 +234,7 @@ function stackPolicy(tree, containers) {
     item: itemInfo,
     name: (id) => describe(id)?.name ?? null,
     addable: isAddable,
+    installable: isInstallable,
     sceneExists,
     rewardSeed: isRewardSeed,
     template: (type) => templates.get(type) ?? null,
@@ -375,6 +376,10 @@ export function addableItems(s, invId, query) {
   const info = s.cat.inventories.get(invId);
   if (!info) throw new OpError('Unknown inventory');
   const inv = get(s.work, info.path);
+  if (info.techFits?.length) {
+    const installed = new Set(inv.Slots.map((x) => x.Id));
+    return searchTechnology(query, info.techFits).filter((t) => !installed.has(`^${t.id}`));
+  }
   return searchItems(query).map((item) => {
     const limit = s.stacks.limitFor({ Id: `^${item.id}`, Type: { InventoryType: item.type } }, inv);
     return { ...item, limit, reason: limit === null ? `The game’s stack limit for this item in ${info.where} can’t be confirmed` : undefined };

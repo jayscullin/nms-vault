@@ -454,11 +454,11 @@ test.describe('clicking an item', () => {
     await expect(page.locator('.badge')).toHaveText('1');
   });
 
-  test('an empty cell and technology have no amount to focus', async ({ page }) => {
+  test('an empty cell offers a search and technology has no amount to focus', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await openSave(page, 'save.hg');
     await cell(page, 0, 5, 3).click();
-    await expect(page.locator('[data-action="add-item"]')).toBeVisible();
+    await expect(page.locator('#cell-search')).toBeVisible();
     await cell(page, 1, 0, 0).click();
     await expect(amount(page)).toHaveCount(0);
   });

@@ -21,6 +21,7 @@ const state = {
   highlight: null, // item id to outline
   saveMenu: null, // account/file whose Open menu is showing
   rewardsMenu: false, // the top bar's platform chooser
+  cellQuery: '', // search in the empty cell pane
   detailsOverlayOpen: false, // the details drawer, when it floats over the content at small widths
 };
 
@@ -554,12 +555,12 @@ function detailsBody() {
   const inv = state.slot && findInv(state.slot.inv);
   const s = inv && slotAt(inv, state.slot.x, state.slot.y);
   if (inv && !s) {
-    const canAdd = BULK.has(inv.kind);
     return `
       <h3>Empty cell</h3>
       <dl><dt>Location</dt><dd>${esc(inv.container.title)} · ${esc(inv.label)}</dd><dt>Cell</dt><dd>${state.slot.x}, ${state.slot.y}</dd></dl>
-      ${canAdd
-        ? '<div class="stack"><button class="btn primary" data-action="add-item">Add item…</button></div>'
+      ${inv.addable
+        ? `<label class="search-box">${icon('search', 15)}<input type="search" id="cell-search" placeholder="Search what fits here..." value="${esc(state.cellQuery)}" autocomplete="off" aria-label="Search what fits in this cell"></label>
+           <ul id="cell-items" class="cell-items" aria-live="polite"></ul>`
         : `<div class="note">${esc(inv.label)} inventories only hold items the game installs, so new items can’t be added here.</div>`}
     `;
   }
@@ -622,40 +623,39 @@ function techActions(s, meta) {
 
 // ---- add item ----------------------------------------------------------------
 
-async function openAddItem() {
-  const target = { ...state.slot };
-  const inv = findInv(target.inv);
-  modal(`
-    <h2>Add item</h2>
-    <p class="muted">To ${esc(inv.container.title)} · ${esc(inv.label)}, cell ${target.x}, ${target.y}. Stack limits come from the game.</p>
-    <input type="search" id="add-search" class="add-search" placeholder="Search by name or ID…" autocomplete="off" aria-label="Search items">
-    <ul id="add-results" class="add-results"></ul>
-    <footer><button class="btn" data-action="close-modal">Cancel</button></footer>`);
-  const box = $('#add-search');
-  let timer;
-  const search = async () => {
-    const results = await api('/api/catalog', { sessionId: state.view.sessionId, inv: target.inv, q: box.value });
-    $('#add-results').innerHTML = results.length
-      ? results
-          .map((r) => `
-        <li class="add-row ${r.limit === null ? 'unavailable' : ''}" ${r.reason ? `title="${esc(r.reason)}"` : ''}>
-          ${r.icon ? `<img class="thumb" src="/icons/${encodeURIComponent(r.id)}.png" alt="" loading="lazy">` : '<span class="thumb"></span>'}
-          <div class="add-name"><b>${esc(r.name)}</b><div class="muted small">${esc(r.subtitle ?? r.type)} · <span class="mono">${esc(r.id)}</span></div></div>
-          ${r.limit === null
-            ? '<span class="muted small">limit unknown</span>'
-            : `<input type="number" min="1" max="${r.limit}" value="${r.limit}" aria-label="Amount of ${esc(r.name)}" data-add-amount="${esc(r.id)}">
-               <button class="btn small primary" data-action="add-confirm" data-id="${esc(r.id)}" data-inv="${esc(target.inv)}" data-x="${target.x}" data-y="${target.y}">Add</button>`}
-        </li>`)
-          .join('')
-      : '<li class="muted">No matching items.</li>';
-  };
-  box.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => run(search), 150);
-  });
-  box.focus();
-  await run(search);
+// The empty cell's pane lists what fits there, from the server. Redraws rebuild the pane,
+// so results are kept per cell, search and edit count and refilled without a flicker.
+let cellCache = { key: null, html: '' };
+const cellKey = () => `${state.slot?.inv}|${state.slot?.x}|${state.slot?.y}|${state.cellQuery}|${state.view?.ops}`;
+
+function cellRow(r) {
+  const off = r.limit === null;
+  return `<li><button class="cell-item" data-action="cell-add" data-id="${esc(r.id)}" ${off ? `disabled title="${esc(r.reason)}"` : `title="Add ${esc(r.name)} to this cell"`}>
+    ${r.icon ? `<img class="thumb" src="/icons/${encodeURIComponent(r.id)}.png" alt="" loading="lazy">` : '<span class="thumb"></span>'}
+    <span class="cell-item-name"><b>${esc(r.name)}</b><small class="muted">${esc(r.subtitle ?? r.type)}</small></span>
+    ${icon(off ? 'unlock' : 'add', 14)}
+  </button></li>`;
 }
+
+async function fillCellItems() {
+  const list = $('#cell-items');
+  if (!list) return;
+  const key = cellKey();
+  if (cellCache.key === key) {
+    list.innerHTML = cellCache.html;
+    return;
+  }
+  const results = await api('/api/catalog', { sessionId: state.view.sessionId, inv: state.slot.inv, q: state.cellQuery });
+  if (key !== cellKey()) return; // moved on while this was loading
+  const more = results.length >= 40 && findInv(state.slot.inv)?.kind !== 'tech';
+  const html = results.length
+    ? results.map(cellRow).join('') + (more ? '<li class="muted small cell-more">Search to see more.</li>' : '')
+    : `<li class="muted small cell-more">${state.cellQuery ? 'Nothing matching fits here.' : 'Nothing else the game data can confirm fits here.'}</li>`;
+  cellCache = { key, html };
+  $('#cell-items')?.replaceChildren();
+  if ($('#cell-items')) $('#cell-items').innerHTML = html;
+}
+
 
 // Units, Nanites and Quicksilver across the top of the middle column, on every save page.
 function renderCurrencies() {
@@ -700,6 +700,7 @@ function renderEditor() {
   state.detailsToggled = false;
   $('.sidebar').scrollTop = sidebarTop;
   if (!fresh) $('.content').scrollTop = contentTop;
+  fillCellItems();
 }
 
 function render() {
@@ -1086,7 +1087,7 @@ function describeOp(op) {
     case 'setShipType': return `Change ship type to ${typeLabel(op.scene)}`;
     case 'setFreighterType': return `Change freighter type to ${typeLabel(op.scene)}`;
     case 'deleteShip': return 'Delete a ship';
-    case 'add': return `Add ${fmt(op.amount)} × ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
+    case 'add': return `${op.amount === undefined ? 'Install' : `Add ${fmt(op.amount)} ×`} ${itemName(`^${op.id}`)} to ${at(op)} (${op.x}, ${op.y})`;
     case 'recharge': return `Recharge technology in ${at(op)} (${op.x}, ${op.y})`;
     case 'sortInventory': return `Sort ${at(op)} by ${op.by}${op.combine ? ', combining stacks' : ''}`;
     case 'unlockSlots': return op.x === undefined ? `Unlock all slots in ${at(op)}` : `Unlock slot (${op.x}, ${op.y}) in ${at(op)}`;
@@ -1238,8 +1239,9 @@ document.addEventListener('click', async (e) => {
     if (!occupied && !unlocked && canUnlockSlots(inv)) return applyOp({ op: 'unlockSlots', inv: inv.id, x, y });
     // Filled cells and empty unlocked cells can be selected (an empty one to add an item).
     state.slot = occupied || unlocked ? { inv: inv.id, x, y } : null;
-    if (!occupied) return render();
-    // Clicking an item opens its details, ready to take a new amount.
+    if (!state.slot) return render();
+    state.cellQuery = '';
+    // Clicking opens the details: an item ready for a new amount, an empty cell with what fits.
     if (!detailsOpen()) {
       if (narrow.matches) state.detailsOverlayOpen = true;
       else pref.set(false);
@@ -1324,8 +1326,6 @@ document.addEventListener('click', async (e) => {
     case 'recharge':
     case 'repair':
       return applyOp({ op: d.action, ...state.slot });
-    case 'add-item':
-      return openAddItem();
     case 'unlock-slots':
       return applyOp({ op: 'unlockSlots', inv: d.inv });
     case 'sort': {
@@ -1392,11 +1392,12 @@ document.addEventListener('click', async (e) => {
     case 'clear-selection':
       state.rewardSel.clear();
       return render();
-    case 'add-confirm': {
-      const amount = Number($(`[data-add-amount="${CSS.escape(d.id)}"]`)?.value);
-      const before = state.view.ops;
-      await applyOp({ op: 'add', inv: d.inv, x: Number(d.x), y: Number(d.y), id: d.id, amount });
-      if (state.view.ops > before) closeModal();
+    case 'cell-add': {
+      const { inv, x, y } = state.slot;
+      const target = findInv(inv);
+      const limit = target.kind === 'tech' ? undefined : (await api('/api/catalog', { sessionId: state.view.sessionId, inv, q: d.id })).find((r) => r.id === d.id)?.limit;
+      await applyOp({ op: 'add', inv, x, y, id: d.id, amount: limit });
+      focusAmount();
       return;
     }
     case 'rename': {
@@ -1537,7 +1538,11 @@ async function onShortcut(e) {
   if ((key === 'Delete' || key === 'Backspace') && s) return take(), document.querySelector('[data-action="remove"]')?.click();
   if (key === 'f' && s && s.type !== 'Technology') return take(), applyOp({ op: 'setAmount', ...state.slot, amount: s.max });
   if (key === 'r' && s?.type === 'Technology') return take(), (document.querySelector('[data-action="recharge"]:not(:disabled)') ?? document.querySelector('[data-action="repair"]'))?.click();
-  if ((key === 'a' || key === 'Enter') && selected && !s && BULK.has(selected.kind)) return take(), openAddItem();
+  if ((key === 'a' || key === 'Enter') && selected && !s && selected.addable) {
+    take();
+    if (!detailsOpen()) await toggleDetails(true);
+    return $('#cell-search')?.focus();
+  }
   if (key === 's') {
     const inv = targetInventory((i) => BULK.has(i.kind) && i.slots.some((x) => x.type !== 'Technology'));
     if (inv) take(), applyOp({ op: 'sortInventory', inv: inv.id, by: state.sortBy, combine: state.sortCombine });
@@ -1553,7 +1558,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset.currency) e.target.blur();
   const reviewOpen = $('#modal-root [data-action="commit"]');
   const amountBox = e.target.matches?.('.amount-form input');
-  const editing = typing(e.target) && !amountBox;
+  const editing = typing(e.target) && !amountBox && e.target.id !== 'cell-search';
   if (e.key === 'Escape') {
     if (state.saveMenu || state.rewardsMenu) return closeSaveMenu();
     if ($('#modal-root .modal')) return closeModal();
@@ -1760,4 +1765,12 @@ loadAccounts();
 
 document.addEventListener('change', (e) => {
   if (e.target.matches?.('input[name="kind"]')) previewType();
+});
+
+let cellSearchTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'cell-search') return;
+  state.cellQuery = e.target.value;
+  clearTimeout(cellSearchTimer);
+  cellSearchTimer = setTimeout(fillCellItems, 150);
 });

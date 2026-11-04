@@ -143,7 +143,7 @@ main { flex: 1; min-height: 0; display: flex; position: relative; overflow: hidd
 /* Editor layout */
 .sidebar { width: 260px; border-right: 1px solid var(--line); overflow: auto; background: rgba(3, 12, 14, .55); flex-shrink: 0; backdrop-filter: blur(8px); }
 .sidebar .search { padding: 12px; position: sticky; top: 0; background: rgba(3, 12, 14, .85); z-index: 1; border-bottom: 1px solid var(--line); }
-.sidebar input[type=search], .add-search, .reward-bar input[type=search], .slot-select, .amount-form input, .add-row input, .add-amount input {
+.sidebar input[type=search], .reward-bar input[type=search], .slot-select, .amount-form input, .add-amount input {
   border: 1px solid var(--line-strong); border-radius: var(--radius); background: rgba(0, 0, 0, .35);
 }
 .search-box { position: relative; display: block; }
@@ -315,13 +315,6 @@ main:has(> .details.collapsed) .content { padding-right: 64px; }
 /* Warnings read like the game's mission banner: a bar fading in from the left. */
 .warnings { border-left: 3px solid var(--warn); padding: 7px 12px; background: linear-gradient(90deg, rgba(242, 174, 61, .2), rgba(242, 174, 61, .04)); margin: 12px 0; font-size: 13px; }
 
-.add-search { width: 100%; padding: 8px 10px; margin-top: 8px; }
-.add-results { list-style: none; padding: 0; margin: 10px 0 0; max-height: 50vh; overflow: auto; }
-.add-row { display: grid; grid-template-columns: 36px 1fr auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line); }
-.add-row.unavailable { opacity: .5; }
-.add-row input { width: 80px; padding: 4px 6px; text-align: right; }
-.add-name { min-width: 0; }
-.add-name b { font-weight: 600; }
 #item-tip {
   position: fixed; z-index: 40; width: 290px; pointer-events: none;
   background: linear-gradient(180deg, rgba(12, 38, 40, .97), rgba(5, 15, 18, .97)); border: 1px solid var(--line-strong);
@@ -574,3 +567,16 @@ input:not(.currency input):focus, select:focus { box-shadow: 0 0 10px rgba(242, 
   .type-preview { grid-row: 1; }
   .type-preview .model-stage { height: 30vh; }
 }
+
+/* Empty cell: what fits here. */
+.details-body .search-box input { width: 100%; padding: 7px 10px 7px 32px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: rgba(0, 0, 0, .35); }
+.cell-items { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; }
+.cell-item { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 5px 8px 5px 5px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0, 0, 0, .22); text-align: left; transition: background-color .12s, border-color .12s; }
+.cell-item:hover:not(:disabled) { border-color: var(--teal); background: rgba(79, 214, 196, .1); }
+.cell-item:disabled { opacity: .45; cursor: default; }
+.cell-item .thumb { width: 32px; height: 32px; }
+.cell-item > .icon { color: var(--muted); }
+.cell-item-name { display: flex; flex-direction: column; min-width: 0; }
+.cell-item-name b { font-weight: 500; font-size: 13px; line-height: 1.25; }
+.cell-item-name small { font-size: 11px; }
+.cell-more { padding: 6px 2px; }
