@@ -400,6 +400,70 @@ test.describe('animation', () => {
   });
 });
 
+test.describe('clicking an item', () => {
+  const amount = (page) => page.locator('.amount-form input');
+
+  test('opens a collapsed pane with the amount focused and selected, and typing replaces it', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openSave(page, 'save.hg');
+    await page.getByRole('button', { name: 'Collapse details' }).click();
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+    await cell(page, 0, 0, 0).click();
+    await expect(page.locator('#details')).toHaveClass(/open/);
+    await expect(amount(page)).toBeFocused();
+    await page.keyboard.type('7');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.badge')).toHaveText('1');
+    expect(await page.evaluate(() => document.querySelector('.cell[data-x="0"][data-y="0"] .amt').textContent)).toMatch(/^7\//);
+  });
+
+  test('opens the drawer over the content at small widths', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await openSave(page, 'save.hg');
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+    await cell(page, 0, 0, 0).click();
+    await expect(page.locator('#details.overlay.open')).toBeVisible();
+    await expect(amount(page)).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+  });
+
+  test('keeps a clicked slot on screen when the grid has scrolled', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 420 });
+    await openSave(page, 'save.hg');
+    await page.locator('.content').evaluate((el) => { el.scrollTop = 120; });
+    const before = await page.locator('.content').evaluate((el) => el.scrollTop);
+    await cell(page, 0, 1, 0).click({ force: true });
+    await expect(amount(page)).toBeFocused();
+    expect(await page.locator('.content').evaluate((el) => el.scrollTop)).toBe(before);
+    // Moving to another page starts at its top.
+    await page.locator('[data-select="items"]').click();
+    expect(await page.locator('.content').evaluate((el) => el.scrollTop)).toBe(0);
+  });
+
+  test('shortcuts still work until you start editing, and then keys edit the number', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 0, 0).click();
+    await page.keyboard.press('f'); // fill
+    await expect(page.locator('.badge')).toHaveText('1');
+    await cell(page, 0, 0, 0).click();
+    await amount(page).click(); // into the number: now it's plain editing
+    await page.keyboard.press('Backspace');
+    await expect(cell(page, 0, 0, 0).locator('.tile')).toBeVisible();
+    await expect(page.locator('.badge')).toHaveText('1');
+  });
+
+  test('an empty cell and technology have no amount to focus', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 5, 3).click();
+    await expect(page.locator('[data-action="add-item"]')).toBeVisible();
+    await cell(page, 1, 0, 0).click();
+    await expect(amount(page)).toHaveCount(0);
+  });
+});
+
 test.describe('inventory toolbar', () => {
   // One atomic read of the live page: a resize can redraw it at any moment.
   const measure = (page) => page.evaluate(() => {

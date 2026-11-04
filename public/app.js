@@ -684,6 +684,9 @@ function changed(key, value) {
 function renderEditor() {
   const c = state.view.containers.find((x) => x.id === state.selected);
   const fresh = changed('page', `${state.view.sessionId}/${state.selected}`);
+  // Redraws keep your place; only moving to another page starts at the top.
+  const contentTop = $('.content')?.scrollTop ?? 0;
+  const sidebarTop = $('.sidebar')?.scrollTop ?? 0;
   app.innerHTML = `
     ${renderSidebar()}
     <section class="content">${renderCurrencies()}<div class="${fresh ? 'page-in' : ''}">${
@@ -695,6 +698,8 @@ function renderEditor() {
     }</div></section>
     ${renderDetails()}`;
   state.detailsToggled = false;
+  $('.sidebar').scrollTop = sidebarTop;
+  if (!fresh) $('.content').scrollTop = contentTop;
 }
 
 function render() {
@@ -1233,7 +1238,16 @@ document.addEventListener('click', async (e) => {
     if (!occupied && !unlocked && canUnlockSlots(inv)) return applyOp({ op: 'unlockSlots', inv: inv.id, x, y });
     // Filled cells and empty unlocked cells can be selected (an empty one to add an item).
     state.slot = occupied || unlocked ? { inv: inv.id, x, y } : null;
-    return render();
+    if (!occupied) return render();
+    // Clicking an item opens its details, ready to take a new amount.
+    if (!detailsOpen()) {
+      if (narrow.matches) state.detailsOverlayOpen = true;
+      else pref.set(false);
+      state.detailsToggled = true;
+    }
+    render();
+    focusAmount();
+    return;
   }
 
   switch (d.action) {
@@ -1459,6 +1473,19 @@ function showShortcuts() {
     <footer><button class="btn" data-action="close-modal">Close</button></footer>`);
 }
 
+// The amount box after a click: selected, so a typed number replaces it. Until you
+// type or click into it (`fresh`), it stays out of the way of the keyboard shortcuts.
+function focusAmount() {
+  const box = $('.amount-form input');
+  if (!box) return;
+  box.focus({ preventScroll: true });
+  box.select();
+  box.dataset.fresh = '1';
+  const settle = () => delete box.dataset.fresh;
+  box.addEventListener('input', settle, { once: true });
+  box.addEventListener('mousedown', settle, { once: true });
+}
+
 const typing = (el) => el.matches?.('input, textarea, select, [contenteditable="true"]');
 const isMod = (e) => e.metaKey || e.ctrlKey;
 
@@ -1525,11 +1552,13 @@ async function onShortcut(e) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset.currency) e.target.blur();
   const reviewOpen = $('#modal-root [data-action="commit"]');
+  const amountBox = e.target.matches?.('.amount-form input');
+  const editing = typing(e.target) && !amountBox;
   if (e.key === 'Escape') {
     if (state.saveMenu || state.rewardsMenu) return closeSaveMenu();
     if ($('#modal-root .modal')) return closeModal();
-    if (narrow.matches && state.detailsOverlayOpen && !typing(e.target)) return toggleDetails(false);
-    if (state.slot && !typing(e.target)) {
+    if (narrow.matches && state.detailsOverlayOpen && !editing) return toggleDetails(false);
+    if (state.slot && !editing) {
       state.slot = null;
       return render();
     }
@@ -1547,7 +1576,8 @@ document.addEventListener('keydown', (e) => {
     return run(async () => { state.view = await api('/api/undo', { sessionId: state.view.sessionId }); render(); });
   }
   // Plain-key shortcuts: not while typing, not over a dialog, not with modifiers.
-  if (isMod(e) || e.altKey || typing(e.target) || $('#modal-root .modal') || $('#confirm-root .confirm')) return;
+  const inputBusy = typing(e.target) && !(amountBox && e.target.dataset.fresh && !/^[0-9.]$/.test(e.key) && e.key !== 'Enter');
+  if (isMod(e) || e.altKey || inputBusy || $('#modal-root .modal') || $('#confirm-root .confirm')) return;
   onShortcut(e);
 });
 
