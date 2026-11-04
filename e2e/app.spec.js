@@ -323,6 +323,53 @@ test.describe('save menu', () => {
   });
 });
 
+test.describe('animation', () => {
+  test('page, details and edit animations run once, only for their own change', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await expect(page.locator('.page-in')).toHaveCount(1);
+    await cell(page, 0, 0, 0).click();
+    await expect(page.locator('.page-in')).toHaveCount(0); // selecting isn't navigating
+    await expect(page.locator('.details-body.swapped')).toHaveCount(1);
+    await page.locator('.amount-form input').fill('5');
+    await page.locator('.amount-form button').click();
+    await expect(cell(page, 0, 0, 0)).toHaveClass(/landed/);
+    await expect(page.locator('.badge.pop')).toHaveCount(1);
+    await expect(page.locator('.btn.primary.arrive')).toHaveCount(1);
+    await expect(page.locator('.details-body.swapped')).toHaveCount(0);
+    await cell(page, 1, 0, 0).click();
+    await expect(page.locator('.cell.landed')).toHaveCount(0); // not replayed by a redraw
+    await expect(page.locator('.badge.pop')).toHaveCount(0);
+  });
+
+  test('the info pane slides both ways at its full width', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openSave(page, 'save.hg');
+    const sample = (name) => page.evaluate(async (label) => {
+      document.querySelector(`[aria-label="${label}"]`).click();
+      await new Promise((r) => setTimeout(r, 40));
+      const pane = document.querySelector('#details');
+      return { anims: pane.getAnimations().map((a) => a.animationName), width: pane.getBoundingClientRect().width };
+    }, name);
+    expect(await sample('Collapse details')).toEqual({ anims: ['pane-out'], width: 300 });
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+    expect(await sample('Show details')).toEqual({ anims: ['pane-in'], width: 300 });
+    await page.locator('#details').evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+    expect((await sample('Show details')).anims).toEqual(['drawer-in']);
+    await page.locator('#details').evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+    expect((await sample('Collapse details')).anims).toEqual(['drawer-out']);
+    await expect(page.locator('#details')).toHaveClass(/collapsed/);
+  });
+
+  test('reduced motion is honoured', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openSave(page, 'save.hg');
+    const seconds = await page.locator('.page-in').evaluate((el) => parseFloat(getComputedStyle(el).animationDuration));
+    expect(seconds).toBeLessThan(0.01);
+  });
+});
+
 test.describe('inventory toolbar', () => {
   // One atomic read of the live page: a resize can redraw it at any moment.
   const measure = (page) => page.evaluate(() => {
@@ -349,6 +396,17 @@ test.describe('inventory toolbar', () => {
     m = await measure(page);
     expect(m.sortText).toBe('none');
     await expect(page.getByRole('button', { name: /^Sort / }).first()).toBeVisible(); // still named
+  });
+});
+
+test.describe('glow', () => {
+  test('Save only glows once there is something to save', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    const save = page.locator('.topbar [data-action="review"]');
+    await expect(save).toHaveCSS('box-shadow', 'none');
+    await cell(page, 0, 0, 0).click();
+    await page.locator('[data-action="remove"]').click();
+    await expect(save).not.toHaveCSS('box-shadow', 'none');
   });
 });
 

@@ -32,9 +32,21 @@ const pref = {
   set: (v) => { try { localStorage.setItem(DETAILS_PREF, v ? '1' : '0'); } catch {} },
 };
 const detailsOpen = () => (narrow.matches ? state.detailsOverlayOpen : !pref.get());
-function toggleDetails(open = !detailsOpen()) {
+let detailsClosing = false;
+async function toggleDetails(open = !detailsOpen()) {
+  if (detailsClosing) return;
+  const pane = $('#details');
+  // The page redraw would remove the open pane, so it slides out first.
+  if (!open && pane?.classList.contains('open')) {
+    detailsClosing = true;
+    pane.classList.add('closing');
+    $('.details-backdrop')?.classList.add('closing');
+    await Promise.allSettled(pane.getAnimations().map((a) => a.finished));
+    detailsClosing = false;
+  }
   if (narrow.matches) state.detailsOverlayOpen = open;
   else pref.set(!open);
+  state.detailsToggled = true;
   render();
 }
 narrow.addEventListener('change', () => {
@@ -86,7 +98,10 @@ function toast(message, error = false) {
   el.className = `toast${error ? ' error' : ''}`;
   el.textContent = message;
   $('#toasts').append(el);
-  setTimeout(() => el.remove(), error ? 6000 : 3000);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 180);
+  }, error ? 6000 : 3000);
 }
 
 async function run(fn) {
@@ -109,8 +124,17 @@ async function applyOp(op) {
     state.view = await api('/api/op', { sessionId: state.view.sessionId, op });
     for (const w of state.view.warnings.slice(before)) toast(w);
     if (state.slot && !slotAt(findInv(state.slot.inv), state.slot.x, state.slot.y)) state.slot = null;
+    state.landed = landedBy(op);
     render();
+    state.landed = null; // one-shot: later redraws don't replay it
   });
+}
+
+// What an edit changed, so that spot can flash once to confirm it landed.
+function landedBy(op) {
+  const at = op.op === 'move' ? op.to : op;
+  if (op.op === 'sortInventory' || (op.op === 'unlockSlots' && op.x === undefined)) return { grid: op.inv };
+  return at?.inv !== undefined && at.x !== undefined ? { cell: `${at.inv}|${at.x}|${at.y}` } : null;
 }
 
 function firstFreeCell(inv) {
@@ -144,11 +168,12 @@ function renderTopbar() {
   $('#save-info').innerHTML = v
     ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · <span class="mono">${esc(v.file)} · ${esc(v.account)}</span>`
     : '<span class="muted">No save open</span>';
+  const opsBefore = seen.ops;
+  const opsChanged = changed('ops', v?.ops ?? 0);
   $('#pending').innerHTML = v
-    ? `${v.ops ? `<span class="badge" title="Pending changes">${v.ops}</span>` : ''}
-       <button class="btn icon-btn" data-action="undo" aria-label="Undo" title="Undo (⌘Z)" ${v.ops ? '' : 'disabled'}>${icon('undo')}</button>
+    ? `<button class="btn icon-btn undo-btn" data-action="undo" aria-label="Undo${v.ops ? `, ${v.ops} pending change${v.ops === 1 ? '' : 's'}` : ''}" title="Undo (⌘Z)" ${v.ops ? '' : 'disabled'}>${v.ops ? `<span class="badge${opsChanged ? ' pop' : ''}">${v.ops}</span>` : ''}${icon('undo')}</button>
        <button class="btn icon-btn" data-action="reset" aria-label="Reset: discard all changes" title="Reset: discard all changes" ${v.ops ? '' : 'disabled'}>${icon('discard')}</button>
-       <button class="btn primary" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
+       <button class="btn primary${v.ops && !opsBefore ? ' arrive' : ''}" data-action="review" title="Review and save (⌘S)" ${v.ops ? '' : 'disabled'}>${icon('save', 16)} Save</button>`
     : '';
   // Global tools, on every page.
   $('#global-tools').innerHTML = `${renderRewardsButton()}${state.gamedata?.available
@@ -332,7 +357,7 @@ function renderGrid(inv) {
       const hit = s && ((q && matches(s.id, q)) || state.highlight === s.id);
       const icon = s && iconUrl(s.id);
       cells.push(`
-        <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
+        <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''} ${state.landed?.cell === `${inv.id}|${x}|${y}` ? 'landed' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
           ${
             s
               ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}${s.type === 'Technology' && s.damage > 0 ? ' damaged' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
@@ -344,7 +369,7 @@ function renderGrid(inv) {
         </div>`);
     }
   }
-  return `<div class="grid" style="--cols: ${inv.width}">${cells.join('')}</div>`;
+  return `<div class="grid ${state.landed?.grid === inv.id ? 'refreshed' : ''}" style="--cols: ${inv.width}">${cells.join('')}</div>`;
 }
 
 // 3D preview of a ship, multi-tool or freighter. Shown disabled, with the reason, when the model can't be previewed.
@@ -515,12 +540,13 @@ function renderItems() {
 // The details pane, collapsible to a floating tab. At small widths it opens over the content.
 function renderDetails() {
   const open = detailsOpen();
+  const swapped = changed('detail', state.slot ? `${state.slot.inv}|${state.slot.x}|${state.slot.y}` : '');
   const label = open ? 'Collapse details' : 'Show details';
   const toggle = `<button class="btn icon-btn details-toggle" data-action="details-toggle" aria-label="${label}" title="${label}" aria-expanded="${open}" aria-controls="details">${icon(open ? 'panel-close' : 'panel-open')}</button>`;
   return `
-    ${open && narrow.matches ? '<div class="details-backdrop" data-action="details-toggle"></div>' : ''}
-    <aside class="details ${open ? 'open' : 'collapsed'}${narrow.matches ? ' overlay' : ''}" id="details" aria-label="Details">
-      ${toggle}${open ? `<div class="details-body">${detailsBody()}</div>` : state.slot ? '<span class="details-dot" aria-hidden="true"></span>' : ''}
+    ${open && narrow.matches ? `<div class="details-backdrop${state.detailsToggled ? ' toggled' : ''}" data-action="details-toggle"></div>` : ''}
+    <aside class="details ${open ? 'open' : 'collapsed'}${narrow.matches ? ' overlay' : ''}${state.detailsToggled ? ' toggled' : ''}" id="details" aria-label="Details">
+      ${toggle}${open ? `<div class="details-body${swapped ? ' swapped' : ''}">${detailsBody()}</div>` : ''}
     </aside>`;
 }
 
@@ -646,18 +672,29 @@ function renderCurrencies() {
     </div>`;
 }
 
+// Animations are one-shot: the page is redrawn on every edit, so each only runs
+// when the thing it describes actually changed since the last draw.
+const seen = { page: null, detail: null, ops: 0 };
+function changed(key, value) {
+  const was = seen[key];
+  seen[key] = value;
+  return was !== value;
+}
+
 function renderEditor() {
   const c = state.view.containers.find((x) => x.id === state.selected);
+  const fresh = changed('page', `${state.view.sessionId}/${state.selected}`);
   app.innerHTML = `
     ${renderSidebar()}
-    <section class="content">${renderCurrencies()}${
+    <section class="content">${renderCurrencies()}<div class="${fresh ? 'page-in' : ''}">${
       state.selected === 'words' ? renderWords()
         : state.selected === 'blueprints' ? renderBlueprints()
         : state.selected?.startsWith('group:') ? renderGroup(state.selected.slice(6))
         : state.selected === 'items' || !c ? renderItems()
         : renderContainer(c)
-    }</section>
+    }</div></section>
     ${renderDetails()}`;
+  state.detailsToggled = false;
 }
 
 function render() {
@@ -1014,6 +1051,7 @@ async function openModel(id) {
     if (!stage.isConnected) return release(); // closed while loading
     releaseModal = release;
     stage.querySelector('.model-status').remove();
+    stage.querySelector('canvas').classList.add('ready');
     if (omitted.includes('decals')) {
       stage.insertAdjacentHTML('afterend', '<p class="muted small">Decals such as hull lettering and signs are left out: the game picks them from a seed it doesn’t write to the save.</p>');
     }
@@ -1511,6 +1549,8 @@ function tooltipHtml(s) {
     <div class="tip-id mono">${esc(s.id)}</div>`;
 }
 
+let tipHideTimer = null;
+
 function showTip(tile) {
   const cell = tile.closest('[data-cell]');
   const s = slotAt(findInv(cell.dataset.inv), Number(cell.dataset.x), Number(cell.dataset.y));
@@ -1522,7 +1562,9 @@ function showTip(tile) {
     tip.setAttribute('role', 'tooltip');
     document.body.append(tip);
   }
+  clearTimeout(tipHideTimer);
   tip.innerHTML = tooltipHtml(s);
+  tip.classList.remove('showing', 'leaving');
   tip.hidden = false;
   // Beside the tile, flipped or clamped to stay inside the viewport.
   const r = tile.getBoundingClientRect();
@@ -1534,13 +1576,18 @@ function showTip(tile) {
   const top = Math.min(Math.max(gap, r.top), window.innerHeight - t.height - gap);
   tip.style.left = `${left}px`;
   tip.style.top = `${top}px`;
+  void tip.offsetWidth; // restart the entrance when the tooltip is reused
+  tip.classList.add('showing');
 }
 
 function hideTip() {
   clearTimeout(tipTimer);
   tipFor = null;
   const tip = $('#item-tip');
-  if (tip) tip.hidden = true;
+  if (!tip || tip.hidden || tip.classList.contains('leaving')) return;
+  tip.classList.remove('showing');
+  tip.classList.add('leaving');
+  tipHideTimer = setTimeout(() => (tip.hidden = true), 100);
 }
 
 document.addEventListener('mouseover', (e) => {

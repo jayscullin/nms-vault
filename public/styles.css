@@ -106,15 +106,14 @@ button { cursor: pointer; }
 }
 .btn:hover:not(:disabled) { border-color: var(--teal); background: rgba(79, 214, 196, .1); }
 .btn:disabled { opacity: .4; cursor: default; }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 650; box-shadow: 0 0 14px rgba(242, 174, 61, .25); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 650; }
 .btn.primary:hover:not(:disabled) { background: #ffbe55; border-color: #ffbe55; }
-.btn.primary:disabled { box-shadow: none; }
 .btn.danger { color: #ff7d8d; }
 .btn.danger:hover:not(:disabled) { border-color: var(--bad); background: rgba(229, 56, 79, .14); }
 .btn.small { padding: 3px 8px; font-size: 11px; }
 .badge { background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 1px 7px; font-weight: 700; font-size: 12px; }
 
-main { flex: 1; min-height: 0; display: flex; position: relative; }
+main { flex: 1; min-height: 0; display: flex; position: relative; overflow: hidden; }
 .test-banner { background: linear-gradient(90deg, rgba(229, 56, 79, .9), rgba(229, 56, 79, .55) 60%, rgba(229, 56, 79, .2)); color: #fff; padding: 8px 18px; font-size: 13px; letter-spacing: .02em; }
 .test-banner b { color: #fff; text-transform: uppercase; letter-spacing: .1em; }
 .test-banner .mono { word-break: break-all; }
@@ -222,9 +221,8 @@ h2.with-icon .icon { color: var(--accent); }
 .cell.locked { background: rgba(0, 0, 0, .35); border-color: rgba(160, 225, 218, .05); opacity: .55; }
 .cell.locked::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(45deg, transparent 0 6px, rgba(255, 255, 255, .03) 6px 8px); }
 .cell.over { outline: 2px solid var(--accent); outline-offset: -2px; }
-.cell.hit { box-shadow: 0 0 0 2px var(--teal), 0 0 14px rgba(79, 214, 196, .5); }
 /* Selected: the thick white frame the game draws round the chosen slot. */
-.cell.selected { outline: 3px solid #fff; outline-offset: -1px; box-shadow: 0 0 16px rgba(255, 255, 255, .25); z-index: 1; }
+.cell.selected { outline: 3px solid #fff; outline-offset: -1px; z-index: 1; }
 .tile {
   position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
   padding: 5px; border: 0; border-radius: 8px; text-align: left; overflow: hidden;
@@ -264,18 +262,16 @@ span.thumb.dot { width: 10px; height: 10px; margin: 13px; }
 .t-Technology { --type: var(--technology); }
 
 /* Details: item name in the display face over a teal hairline, stats as underlined rows. */
-.details { width: 300px; border-left: 1px solid var(--line); background: rgba(3, 12, 14, .62); overflow: auto; flex-shrink: 0; position: relative; transition: width .18s ease; backdrop-filter: blur(10px); }
+.details { width: 300px; border-left: 1px solid var(--line); background: rgba(3, 12, 14, .62); overflow: auto; flex-shrink: 0; position: relative; backdrop-filter: blur(10px); }
 .details-body { padding: 18px; padding-top: 14px; }
 .details-toggle { position: sticky; top: 10px; float: right; margin: 10px 10px 0 0; z-index: 1; }
 /* Collapsed: no bar, just the tab floating at the top right of the content. */
 .details.collapsed { position: absolute; top: 10px; right: 0; width: auto; border: 0; background: none; overflow: visible; z-index: 8; backdrop-filter: none; }
 .details.collapsed .details-toggle { position: relative; top: 0; float: none; margin: 0; background: var(--panel-solid); box-shadow: 0 2px 10px #0006; border-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 main:has(> .details.collapsed) .content { padding-right: 64px; }
-.details-dot { position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); pointer-events: none; }
 /* Small widths: opened, the pane floats over the content. */
 .details.overlay.open { position: absolute; top: 0; right: 0; bottom: 0; z-index: 8; width: min(320px, 88vw); background: var(--panel-solid); box-shadow: -12px 0 32px #0008; }
 .details-backdrop { position: absolute; inset: 0; background: #0007; z-index: 7; }
-@media (prefers-reduced-motion: reduce) { .details { transition: none; } }
 .details h3 { margin: 0 0 4px; font: 300 22px/1.2 var(--display); letter-spacing: .02em; word-break: break-word; padding-bottom: 6px; border-bottom: 1px solid var(--teal); }
 .details dl { display: grid; grid-template-columns: auto 1fr; gap: 0 12px; margin: 14px 0; }
 .details dt, .details dd { padding: 6px 0 5px; border-bottom: 1px solid var(--line); }
@@ -386,6 +382,9 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 /* Top-bar buttons share one height so glyph and text buttons line up. */
 .topbar .btn { height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; }
 .topbar .icon-btn { width: 34px; padding: 0; }
+/* The pending count sits inside Undo, since undo takes it down one at a time. */
+.topbar .undo-btn { width: auto; min-width: 34px; padding: 0 8px; gap: 6px; }
+.undo-btn .badge { background: #fff; color: #06171a; font-family: var(--mono); letter-spacing: 0; line-height: 1.5; }
 .topbar .btn.primary .icon { margin-right: 0; }
 .modal.wide { width: min(960px, 100%); max-height: min(88vh, var(--modal-room)); display: flex; flex-direction: column; }
 .modal.wide #cat-results { overflow: auto; min-height: 0; flex: 1; }
@@ -446,7 +445,8 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 }
 
 .model-stage { position: relative; height: min(62vh, 560px); border-radius: var(--radius); background: radial-gradient(ellipse at 50% 45%, #145550, #082629 55%, #03090b 85%); border: 1px solid var(--line); overflow: hidden; }
-.model-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.model-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; opacity: 0; transition: opacity .3s var(--ease); }
+.model-stage canvas.ready { opacity: 1; }
 .model-stage canvas:active { cursor: grabbing; }
 .model-status { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; }
 
@@ -477,6 +477,68 @@ kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; p
 .menu-item.danger:hover { background: rgba(229, 56, 79, .16); }
 .save-menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 .sort-by { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+
+/* Glow marks what matters most, strongest first: the pending Save, the selected slot,
+   then where you are and what you're pointing at. Everything else stays flat. */
+.topbar .btn.primary:not(:disabled) { box-shadow: 0 0 18px rgba(242, 174, 61, .55); }
+.modal .btn.primary:not(:disabled) { box-shadow: 0 0 12px rgba(242, 174, 61, .3); }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 0 14px rgba(242, 174, 61, .4); }
+.nav-item.active { box-shadow: inset 14px 0 14px -14px rgba(242, 174, 61, .7); }
+.pill.active, .tab.active { box-shadow: 0 0 10px rgba(242, 174, 61, .35); }
+input:not(.currency input):focus, select:focus { box-shadow: 0 0 10px rgba(242, 174, 61, .25); }
+.currency:focus-within { box-shadow: 0 0 12px rgba(242, 174, 61, .25); }
+/* Slots, in rising priority so the later states win. */
+.cell:has(.tile.damaged) { box-shadow: 0 0 10px rgba(229, 56, 79, .35); }
+.cell:has(.tile):hover, .cell.unlockable:hover { z-index: 1; box-shadow: 0 0 12px rgba(79, 214, 196, .4); }
+.cell.hit { box-shadow: 0 0 0 2px var(--teal), 0 0 14px rgba(79, 214, 196, .5); }
+.cell.over { box-shadow: 0 0 14px rgba(242, 174, 61, .55); z-index: 1; }
+.cell.selected { box-shadow: 0 0 18px rgba(255, 255, 255, .35); }
+
+/* Motion explains a change; nothing moves on its own. Short, and only on the event:
+   something opened, you moved somewhere, an edit landed, a change is waiting to save. */
+.modal-backdrop { animation: fade-in .14s ease-out backwards; }
+.modal { animation: rise-in .2s var(--ease) backwards; }
+.save-menu { transform-origin: top right; animation: menu-in .12s var(--ease) backwards; }
+.toast { animation: toast-in .2s var(--ease) backwards; }
+.toast.out { animation: toast-out .18s ease-in forwards; }
+.page-in { animation: rise-in .18s var(--ease) backwards; }
+.details-body.swapped { animation: fade-in .14s ease-out backwards; }
+.details.open.toggled:not(.overlay) { animation: pane-in .22s var(--ease) backwards; }
+.details.open.closing:not(.overlay) { animation: pane-out .18s ease-in forwards; }
+.details.overlay.open.toggled { animation: drawer-in .22s var(--ease) backwards; }
+.details.overlay.open.closing { animation: drawer-out .18s ease-in forwards; }
+.details-backdrop.toggled { animation: fade-in .16s ease-out backwards; }
+.details-backdrop.closing { animation: fade-out .18s ease-in forwards; }
+#item-tip.showing { animation: tip-in .14s var(--ease) backwards; }
+#item-tip.leaving { animation: fade-out .1s ease-in forwards; }
+.details.collapsed.toggled .details-toggle { animation: fade-in .16s ease-out .06s backwards; }
+.cell.landed { animation: landed .7s ease-out; }
+.grid.refreshed .tile { animation: fade-in .22s ease-out backwards; }
+.badge.pop { animation: pop .24s var(--ease); }
+.btn.primary.arrive { animation: arrive .8s ease-out; }
+.btn, .pill { transition: border-color .12s, background-color .12s, color .12s, box-shadow .12s, transform .08s; }
+.btn:active:not(:disabled), .pill:active { transform: translateY(1px); }
+.nav-item, .cell, .reward, .cat-row, .add-target, .menu-item, .tab { transition: background-color .12s, border-color .12s, box-shadow .12s; }
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes menu-in { from { opacity: 0; transform: scale(.96) translateY(-4px); } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(6px); } }
+/* The pane keeps its width; its margin slides it past the edge while the grid makes room. */
+@keyframes pane-in { from { margin-right: -300px; } }
+@keyframes pane-out { to { margin-right: -300px; } }
+@keyframes drawer-in { from { transform: translateX(100%); } }
+@keyframes drawer-out { to { transform: translateX(100%); } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes tip-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes landed { from { box-shadow: 0 0 0 2px var(--teal), 0 0 22px rgba(79, 214, 196, .85); } }
+@keyframes pop { 40% { transform: scale(1.35); } }
+@keyframes arrive { from { box-shadow: 0 0 34px rgba(242, 174, 61, 1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *:not(#busy span), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
+}
 
 /* Inventory toolbar. Sized by its section, not the window, because the sidebar and
    details pane change how much room there is. Condensed: glyphs only, keeping the

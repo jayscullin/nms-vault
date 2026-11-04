@@ -14,6 +14,9 @@ test('items show real names, and hovering shows the description', async ({ page 
   await expect(tile).toHaveAttribute('aria-label', /^Carbon /);
   await tile.hover();
   await expect(page.locator('#item-tip')).toContainText('Carbon');
+  await expect(page.locator('#item-tip')).toHaveClass(/showing/);
+  await page.locator('.content h2').first().hover();
+  await expect(page.locator('#item-tip')).toBeHidden();
 });
 
 test('add an item from the catalogue to an empty cell', async ({ page }) => {

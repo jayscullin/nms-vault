@@ -34,6 +34,8 @@ export async function openSave(page, file) {
   await home(page);
   await page.locator(`[data-action="open"][data-file="${file}"]`).first().click();
   await expect(page.locator('.content h2')).toBeVisible();
+  // Let the page's entrance animation finish, so tests act on it at rest.
+  await page.locator('.page-in').evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
 }
 
 // A grid cell by inventory section index (0 = first inventory shown) and coordinates.
