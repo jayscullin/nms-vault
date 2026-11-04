@@ -78,6 +78,7 @@ At startup the server finds the game install through your Steam libraries (or `N
 - The old separate Cargo inventories (exosuit, ships, freighter) are hidden. Current game versions keep cargo in the general inventory and leave these empty, so items moved there might not show in-game. If one does hold items, it appears as "Cargo (legacy)", and items can only be moved out of it.
 - Products can't be moved into inventory types your save has no examples of, such as an empty exocraft, because their stack limit there can't be confirmed.
 - Xbox Game Pass, PlayStation and Switch saves use different containers and are not supported.
+- Only macOS with Steam has been used for real so far. Windows, Linux and GOG are untested beyond automated tests; see [testing on other platforms](docs/platform-testing.md). `npm run doctor` gives a read-only report for any machine.
 - Key names come from `data/mapping.json` (MBINCompiler). Update it after major game updates.
 
 ## Layout
