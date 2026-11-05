@@ -553,7 +553,8 @@ function isSteamRunning() {
 function isGameRunning() {
   try {
     if (process.platform === 'win32') return execFileSync('tasklist', ['/FI', 'IMAGENAME eq NMS.exe'], { encoding: 'utf8' }).includes('NMS.exe');
-    execFileSync('pgrep', ['-if', "no man's sky|NMS.exe"], { stdio: 'ignore' });
+    // The brackets stop a search running at the same moment from matching this one's own text.
+    execFileSync('pgrep', ['-if', "no man's sk[y]|[N]MS\\.exe"], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
