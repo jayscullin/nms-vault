@@ -75,6 +75,88 @@ test('moving a stack uses the limit the game wrote for the target inventory', ()
   assert.ok(S.review(s).ok);
 });
 
+test('move to an inventory tops up its stack, then uses a free cell', () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const chest = S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  // 30 in a chest into the exosuit, which has 5 of a limit of 20: 15 top it up, 15 take a new cell.
+  S.addOp(s, { op: 'moveTo', from: { inv: chest.id, x: 0, y: 0 }, inv: exosuit(s).id });
+  const stacks = exosuit(s).slots.filter((x) => x.id === '^HYPERFUEL2');
+  assert.deepEqual(stacks.map((x) => [x.amount, x.max]), [[20, 20], [15, 20]]);
+  assert.equal(S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0].slots.some((x) => x.id === '^HYPERFUEL2'), false);
+  assert.ok(S.review(s).ok);
+  assert.throws(() => S.addOp(s, { op: 'moveTo', from: { inv: exosuit(s).id, x: 2, y: 0 }, inv: exosuit(s).id }), /already there/);
+});
+
+test('technology and other grids are refused as move targets', () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const [general, tech] = S.sessionView(s).containers[0].inventories;
+  const chest = S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  assert.throws(() => S.addOp(s, { op: 'moveTo', from: { inv: general.id, x: 0, y: 0 }, inv: tech.id }), /can't receive/);
+  assert.throws(() => S.addOp(s, { op: 'moveTo', from: { inv: tech.id, x: 0, y: 0 }, inv: chest.id }), /Technology/);
+  assert.equal(s.ops.length, 0);
+});
+
+test('consolidate gathers every other stack and can be undone', () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const chestOf = () => S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  S.addOp(s, { op: 'consolidate', id: '^FUEL1', into: chestOf().id });
+  assert.equal(chestOf().slots.find((x) => x.id === '^FUEL1').amount, 650); // 500 + 100 + a ship's 50
+  assert.equal(exosuit(s).slots.some((x) => x.id === '^FUEL1'), false);
+  const r = S.review(s);
+  assert.ok(r.ok, JSON.stringify(r.checks.filter((c) => !c.ok)));
+  S.undoOp(s);
+  assert.equal(chestOf().slots.find((x) => x.id === '^FUEL1').amount, 500);
+  assert.equal(exosuit(s).slots.find((x) => x.id === '^FUEL1').amount, 100);
+});
+
+test('consolidate only targets an inventory holding the item, and has to have something to do', () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const empty = S.sessionView(s).containers.find((c) => c.group === 'Storage' && c.title !== 'Supplies' && c.inventories[0].slots.length === 0)?.inventories[0];
+  if (empty) assert.throws(() => S.addOp(s, { op: 'consolidate', id: '^FUEL1', into: empty.id }), /doesn't hold/);
+  assert.throws(() => S.addOp(s, { op: 'consolidate', id: '^ANTIMATTER', into: exosuit(s).id }), /already in/);
+  assert.equal(s.ops.length, 0);
+});
+
+test('consolidating many items is one edit with one undo', () => {
+  fresh();
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const chest = () => S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  S.addOp(s, { op: 'consolidateMany', items: [{ id: '^FUEL1', into: chest().id }, { id: '^HYPERFUEL2', into: chest().id }] });
+  assert.equal(s.ops.length, 1);
+  assert.equal(chest().slots.find((x) => x.id === '^FUEL1').amount, 650);
+  assert.equal(chest().slots.find((x) => x.id === '^HYPERFUEL2').amount, 35);
+  assert.ok(S.review(s).ok);
+  S.undoOp(s);
+  assert.equal(s.ops.length, 0);
+  assert.equal(chest().slots.find((x) => x.id === '^FUEL1').amount, 500);
+  assert.equal(exosuit(s).slots.find((x) => x.id === '^HYPERFUEL2').amount, 5);
+  // A wrong target refuses the whole edit and leaves nothing half done.
+  assert.throws(() => S.addOp(s, { op: 'consolidateMany', items: [{ id: '^FUEL1', into: chest().id }, { id: '^ANTIMATTER', into: chest().id }] }), /doesn't hold/);
+  assert.equal(exosuit(s).slots.find((x) => x.id === '^FUEL1').amount, 100);
+  assert.throws(() => S.addOp(s, { op: 'consolidateMany', items: [] }), /Nothing/);
+});
+
+test('what doesn’t fit stays where it was', () => {
+  const tree = saveTree();
+  const chest = tree.BaseContext.PlayerStateData.Chest1Inventory;
+  chest.ValidSlotIndices = chest.ValidSlotIndices.slice(0, 2); // only the two occupied cells
+  chest.Slots[0].Amount = 39; // room for 1
+  fresh();
+  writeSave(dir, 'save.hg', tree);
+  const s = S.openSession(ACCOUNT, 'save.hg');
+  const chestInv = () => S.sessionView(s).containers.find((c) => c.title === 'Supplies').inventories[0];
+  S.addOp(s, { op: 'consolidate', id: '^HYPERFUEL2', into: chestInv().id });
+  assert.equal(chestInv().slots.find((x) => x.id === '^HYPERFUEL2').amount, 40);
+  assert.equal(exosuit(s).slots.find((x) => x.id === '^HYPERFUEL2').amount, 4);
+  assert.ok(s.warnings.some((w) => w.includes('4 stayed')));
+  assert.ok(S.review(s).ok);
+  assert.throws(() => S.addOp(s, { op: 'consolidate', id: '^HYPERFUEL2', into: chestInv().id }), /no room/);
+});
+
 test('currency and rename edits pass review', () => {
   fresh();
   const s = S.openSession(ACCOUNT, 'save.hg');

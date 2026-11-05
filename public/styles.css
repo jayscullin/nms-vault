@@ -554,6 +554,12 @@ input:not(.currency input):focus, select:focus { box-shadow: 0 0 10px rgba(242, 
 .backup-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 2px; border-top: 1px solid var(--line); }
 .backup-list .icon-btn { padding: 4px 6px; }
 
+.move-to { display: grid; gap: 4px; margin: 10px 0; }
+.consolidate-note { margin: -2px 0 4px; }
+.items-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 16px; }
+.items-head h2 { flex: 1 1 auto; }
+.item-action { width: 1%; white-space: nowrap; text-align: right !important; }
+
 /* Locating saves by hand */
 .save-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -12px 0 20px; }
 .save-folder .gamedata { margin: 0; flex: 0 1 auto; min-width: 0; word-break: break-word; }

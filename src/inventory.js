@@ -312,6 +312,51 @@ function addTechnology(loc, id, stacks, warnings) {
   return { touched: [[...loc.info.path, 'Slots']], warnings };
 }
 
+// Moves a stack into another inventory: tops up stacks of the same item, then uses free
+// cells, each through the ordinary move and its rules. Returns what moved and what didn't fit.
+function pourInto(tree, cat, stacks, from, intoId) {
+  const target = cat.inventories.get(intoId);
+  if (!target) throw new OpError(`Unknown inventory ${intoId}`);
+  if (!BULK.has(target.kind)) throw new OpError(`${target.where} can't receive items from elsewhere`);
+  const inv = get(tree, target.path);
+  const start = locate(tree, cat, from);
+  if (!start.slot) throw new OpError('Nothing to move there');
+  if (!isBulkItem(start.slot)) throw new OpError('Technology can only be rearranged within its own inventory');
+  if (start.info.id === intoId) throw new OpError('Item is already there');
+  const id = start.slot.Id;
+  const total = num(start.slot.Amount);
+  const touched = [];
+  for (;;) {
+    const source = locate(tree, cat, from);
+    if (!source.slot) return { moved: total, left: 0, touched, id: toDisplay(id) };
+    const stack = inv.Slots.find((s) => s.Id === id && num(s.Amount) < num(s.MaxAmount));
+    const used = new Set(inv.Slots.map((s) => cellKey(num(s.Index.X), num(s.Index.Y))));
+    const free = inv.ValidSlotIndices.find((i) => !used.has(cellKey(num(i.X), num(i.Y))));
+    const cell = stack?.Index ?? free;
+    if (!cell) return { moved: total - num(source.slot.Amount), left: num(source.slot.Amount), touched, id: toDisplay(id) };
+    touched.push(...applyOp(tree, cat, stacks, { op: 'move', from, to: { inv: intoId, x: num(cell.X), y: num(cell.Y) } }).touched);
+  }
+}
+
+// Sends every other stack of an item to one inventory that already holds it.
+function consolidateItem(tree, cat, stacks, id, into) {
+  const target = cat.inventories.get(into);
+  if (!target) throw new OpError(`Unknown inventory ${into}`);
+  const same = (s) => toDisplay(s.Id) === id && isBulkItem(s);
+  if (!get(tree, target.path).Slots.some(same)) throw new OpError(`${target.where} doesn't hold ${id}`);
+  const sources = [...cat.inventories.values()]
+    .filter((i) => i.id !== into)
+    .flatMap((i) => get(tree, i.path).Slots.filter(same).map((s) => ({ inv: i.id, x: num(s.Index.X), y: num(s.Index.Y) })));
+  const result = { moved: 0, left: 0, sources: sources.length, touched: [] };
+  for (const from of sources) {
+    const r = pourInto(tree, cat, stacks, from, into);
+    result.touched.push(...r.touched);
+    result.moved += r.moved;
+    result.left += r.left;
+  }
+  return result;
+}
+
 // Applies one op to the tree in place. Returns { touched: [path...], warnings: [] }.
 // Callers apply ops to a scratch tree; on OpError the tree may be partially modified.
 // `stacks` supplies the game's rules:
@@ -553,6 +598,37 @@ export function applyOp(tree, cat, stacks, op) {
         setIndex(swapping, from.x, from.y);
         from.inv.Slots.push(swapping);
       }
+      return { touched, warnings };
+    }
+    case 'moveTo': {
+      const target = cat.inventories.get(op.inv);
+      const { moved, left, touched, id } = pourInto(tree, cat, stacks, op.from, op.inv);
+      if (!moved) throw new OpError(`${target.where} has no room`);
+      warnings.push(`Moved ${moved} ${id} to ${target.where}${left ? `; ${left} stayed behind because it’s full` : ''}`);
+      return { touched, warnings };
+    }
+    case 'consolidate': {
+      const where = cat.inventories.get(op.into)?.where;
+      const { moved, left, sources, touched } = consolidateItem(tree, cat, stacks, op.id, op.into);
+      if (!sources) throw new OpError(`Everything is already in ${where}`);
+      if (!moved) throw new OpError(`${where} has no room`);
+      warnings.push(`Moved ${moved} ${op.id} to ${where}${left ? `; ${left} stayed where it was because it’s full` : ''}`);
+      return { touched, warnings };
+    }
+    case 'consolidateMany': {
+      // One edit, so one undo, however many items it covers.
+      if (!Array.isArray(op.items) || !op.items.length) throw new OpError('Nothing to consolidate');
+      const touched = [];
+      let done = 0;
+      let partial = 0;
+      for (const { id, into } of op.items) {
+        const r = consolidateItem(tree, cat, stacks, id, into);
+        touched.push(...r.touched);
+        if (r.moved) done++;
+        if (r.left) partial++;
+      }
+      if (!done) throw new OpError('Nothing could be consolidated');
+      warnings.push(`Consolidated ${done} item${done === 1 ? '' : 's'}${partial ? `; ${partial} didn’t fully fit, so the rest stayed where it was` : ''}`);
       return { touched, warnings };
     }
     case 'setCurrency': {

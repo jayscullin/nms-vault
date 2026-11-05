@@ -551,6 +551,9 @@ function opScope(s, op) {
     case 'recharge':
     case 'repair': return [inv(op.inv)];
     case 'move': return [inv(op.from?.inv), inv(op.to?.inv)];
+    case 'moveTo': return [inv(op.from?.inv), inv(op.inv)];
+    case 'consolidate':
+    case 'consolidateMany': return [...s.cat.inventories.keys()].map(inv);
     case 'setCurrency': return [['BaseContext', 'PlayerStateData', op.field]];
     case 'rename': return [s.cat.names.get(op.target)];
     case 'setShipType': return [[...PLAYER, 'ShipOwnership', Number(op.ship)], [...PLAYER, 'CurrentShip'], customScope(s, op.ship)];

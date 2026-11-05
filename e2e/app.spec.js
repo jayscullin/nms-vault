@@ -441,6 +441,107 @@ test.describe('clicking an item', () => {
     expect(await page.locator('.content').evaluate((el) => el.scrollTop)).toBe(0);
   });
 
+  test('move to lists only places that can take the item and moves it there', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 2, 0).click(); // 5 Warp Hypercore
+    const select = page.locator('[data-move-to]');
+    const options = await select.locator('option').allTextContents();
+    expect(options[0]).toContain('Choose');
+    // The holder comes first and says how many it has; this inventory and technology aren't offered.
+    expect(options[1]).toMatch(/Supplies.*\(30 here\)/);
+    expect(options.some((o) => /Exosuit · General|Technology/.test(o))).toBe(false);
+    await select.selectOption({ index: 1 });
+    await expect(page.locator('.badge')).toHaveText('1');
+    await expect(cell(page, 0, 2, 0).locator('.tile')).toHaveCount(0);
+    await expect(page.locator('.toast').last()).toContainText('Moved 5');
+    await reviewAndWrite(page);
+    const ps = readSave('save.hg').BaseContext.PlayerStateData;
+    expect(ps.Inventory.Slots.some((x) => x.Id === '^HYPERFUEL2')).toBe(false);
+    expect(ps.Chest1Inventory.Slots.find((x) => x.Id === '^HYPERFUEL2').Amount).toBe(35);
+    expect((await verifyFile('save.hg')).ok).toBe(true);
+  });
+
+  test('technology has no move list', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 1, 0, 0).click();
+    await expect(page.locator('.details .hero, .details h3').first()).toBeVisible();
+    await expect(page.locator('[data-move-to]')).toHaveCount(0);
+    await expect(page.locator('[data-action="consolidate"]')).toHaveCount(0);
+  });
+
+  test('consolidate sends an item to whoever has the most', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 0, 0).click(); // 100 in the exosuit, 500 in the chest
+    const button = page.locator('[data-action="consolidate"]');
+    await expect(button).toHaveText(/Consolidate to Supplies/i);
+    await expect(page.locator('.consolidate-note')).toContainText(/Moves 150 from Exosuit and .+ to Supplies/);
+    await button.click();
+    await expect(cell(page, 0, 0, 0).locator('.tile')).toHaveCount(0);
+    await reviewAndWrite(page);
+    const ps = readSave('save.hg').BaseContext.PlayerStateData;
+    expect(ps.Inventory.Slots.some((x) => x.Id === '^FUEL1')).toBe(false);
+    expect(ps.Chest1Inventory.Slots.find((x) => x.Id === '^FUEL1').Amount).toBe(650);
+    expect(ps.ShipOwnership.some((ship) => ship.Inventory.Slots.some((x) => x.Id === '^FUEL1'))).toBe(false);
+    expect((await verifyFile('save.hg')).ok).toBe(true);
+  });
+
+  test('consolidating equal amounts favours the inventory in focus', async ({ page }) => {
+    const tree = saveTree();
+    tree.BaseContext.PlayerStateData.Inventory.Slots.find((x) => x.Id === '^FUEL1').Amount = 500;
+    writeFixtureSave('save.hg', tree);
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 0, 0).click();
+    await expect(page.locator('[data-action="consolidate"]')).toHaveText(/Consolidate here/i);
+    await page.locator('.nav-item', { hasText: 'Supplies' }).click();
+    await cell(page, 0, 1, 0).click();
+    await expect(page.locator('[data-action="consolidate"]')).toHaveText(/Consolidate here/i);
+    await page.locator('[data-action="consolidate"]').click();
+    await expect(page.locator('.badge')).toHaveText('1');
+    await expect(page.locator('.amount-form input')).toHaveValue('1050');
+  });
+
+  test('an item in only one place has nothing to consolidate', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 3, 0).click(); // the only Antimatter
+    await expect(page.locator('.details h3')).toBeVisible();
+    await expect(page.locator('[data-action="consolidate"]')).toHaveCount(0);
+  });
+
+  test('the Inventory page consolidates one item, or everything shown as one undo', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await page.locator('[data-select="items"]').click();
+    const row = (id) => page.locator('.items-table tbody tr', { hasText: id });
+    const all = page.locator('[data-action="consolidate-all"]');
+    await expect(all).toHaveText(/Consolidate all \(2\)/i);
+    await expect(row('^ANTIMATTER').locator('[data-action="consolidate"]')).toHaveCount(0);
+    await expect(row('^ENERGY').locator('[data-action="consolidate"]')).toHaveCount(0);
+
+    // One item, from its row.
+    await row('^FUEL1').locator('[data-action="consolidate"]').click();
+    await expect(page.locator('.badge')).toHaveText('1');
+    await expect(row('^FUEL1').locator('.loc')).toHaveCount(1);
+    await expect(all).toHaveText(/Consolidate all \(1\)/i);
+    await page.locator('[data-action="undo"]').click();
+    await expect(page.locator('.badge')).toHaveCount(0);
+
+    // A search narrows what the button covers.
+    await page.locator('#search').fill('hyperfuel');
+    await expect(all).toHaveText(/Consolidate matching \(1\)/i);
+    await page.locator('#search').fill('');
+
+    // Everything shown: confirmed, then one pending change.
+    await all.click();
+    expect(await confirmDialog(page)).toContain('Consolidate 2 items');
+    await expect(page.locator('.badge')).toHaveText('1');
+    await expect(all).toBeDisabled();
+    await reviewAndWrite(page);
+    const ps = readSave('save.hg').BaseContext.PlayerStateData;
+    expect(ps.Chest1Inventory.Slots.find((x) => x.Id === '^FUEL1').Amount).toBe(650);
+    expect(ps.Chest1Inventory.Slots.find((x) => x.Id === '^HYPERFUEL2').Amount).toBe(35);
+    expect(ps.Inventory.Slots.some((x) => x.Id === '^FUEL1' || x.Id === '^HYPERFUEL2')).toBe(false);
+    expect((await verifyFile('save.hg')).ok).toBe(true);
+  });
+
   test('searching opens Inventory, filtered to what you have and where it is', async ({ page }) => {
     await openSave(page, 'save.hg');
     const box = page.locator('#search');

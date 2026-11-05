@@ -574,13 +574,21 @@ function renderItems() {
   const rows = aggregateItems()
     .filter((it) => !q || matches(it.id, q))
     .sort((a, b) => a.type.localeCompare(b.type) || b.total - a.total);
-  const title = `<h2 class="with-icon">${icon('inventory', 22)}Inventory</h2>`;
+  // Technology stays in its own grid, so only products and substances can be gathered.
+  const plans = new Map();
+  for (const it of rows) {
+    const plan = it.type === 'Technology' ? null : consolidatePlan(it);
+    if (plan) plans.set(it.id, plan);
+  }
+  const ready = [...plans].filter(([id, plan]) => hasRoom(plan.into, id)).length;
+  const title = `<div class="items-head"><h2 class="with-icon">${icon('inventory', 22)}Inventory</h2>
+    <button class="btn with-icon" data-action="consolidate-all" title="Gather each item shown into the inventory holding the most of it" ${ready ? '' : 'disabled'}>${icon('combine', 15)}Consolidate${ready ? ` ${q ? 'matching' : 'all'} (${ready})` : ''}</button></div>`;
   if (q && !rows.length) return `${title}<p class="sub">Nothing in this save matches “${esc(state.search)}”.</p>`;
   return `
     ${title}
     <p class="sub">${q ? `${rows.length} item${rows.length === 1 ? '' : 's'} you have matching “${esc(state.search)}”.` : `${rows.length} distinct items across every inventory.`} Click a location to jump to it.</p>
     <table class="items-table">
-      <thead><tr><th>Item</th><th>Type</th><th class="num">Total</th><th>Where</th></tr></thead>
+      <thead><tr><th>Item</th><th>Type</th><th class="num">Total</th><th>Where</th><th aria-label="Consolidate"></th></tr></thead>
       <tbody>${rows
         .map(
           (it) => `
@@ -592,6 +600,7 @@ function renderItems() {
           <td>${it.locations
             .map((l) => `<button class="loc" data-jump="${esc(l.inv.container.id)}" data-inv="${esc(l.inv.id)}" data-x="${l.slot.x}" data-y="${l.slot.y}">${esc(l.inv.container.title)} · ${esc(l.inv.label)}${it.type === 'Technology' ? '' : ` · ${fmt(l.slot.amount)}`}</button>`)
             .join('')}</td>
+          <td class="item-action">${plans.has(it.id) ? `<button class="btn icon-btn small" data-action="consolidate" data-id="${esc(it.id)}" data-into="${esc(plans.get(it.id).into.id)}" aria-label="Consolidate ${esc(itemName(it.id))}: ${esc(consolidateText(plans.get(it.id), it.id))}" title="${esc(consolidateText(plans.get(it.id), it.id))}" ${hasRoom(plans.get(it.id).into, it.id) ? '' : 'disabled'}>${icon('combine', 15)}</button>` : ''}</td>
         </tr>`,
         )
         .join('')}</tbody>
@@ -655,13 +664,63 @@ function detailsBody() {
               <input name="amount" type="number" min="1" max="${s.max}" step="1" value="${s.amount}" aria-label="Amount">
               <button class="btn" type="submit">Set</button>
             </form>
+            ${renderMoveTo(s, inv)}
             <div class="stack">
+              ${renderConsolidate(s, inv)}
               <button class="btn" data-action="fill" ${s.amount >= s.max ? 'disabled' : ''}>Fill stack (${fmt(s.max)})</button>
               <button class="btn danger" data-action="remove">Remove item</button>
             </div>`
           : techActions(s, meta)
       }
     `;
+}
+
+const amountOf = (inv, id) => inv.slots.reduce((n, x) => n + (x.id === id ? x.amount : 0), 0);
+const hasRoom = (inv, id) => Boolean(firstFreeCell(inv)) || inv.slots.some((x) => x.id === id && x.amount < x.max);
+const invName = (inv) => `${inv.container.title} · ${inv.label}`;
+
+// The inventories that can take this item, the ones already holding it first.
+function renderMoveTo(s, inv) {
+  const places = allInventories().filter((i) => i.id !== inv.id && dropBlock(s, inv.id, i) === null && hasRoom(i, s.id));
+  if (!places.length) return `<label class="move-to"><span class="label">Move to</span><select class="slot-select" disabled><option>No other place can take this</option></select></label>`;
+  const option = (i) => `<option value="${esc(i.id)}">${esc(invName(i))}${amountOf(i, s.id) ? ` (${fmt(amountOf(i, s.id))} here)` : ''}</option>`;
+  const holding = places.filter((i) => amountOf(i, s.id)).sort((a, b) => amountOf(b, s.id) - amountOf(a, s.id));
+  const groups = new Map();
+  for (const i of places) if (!holding.includes(i)) groups.set(i.container.group, [...(groups.get(i.container.group) ?? []), i]);
+  return `<label class="move-to"><span class="label">Move to</span>
+    <select class="slot-select" data-move-to aria-label="Move to">
+      <option value="">Choose a place...</option>
+      ${holding.length ? `<optgroup label="Already has this">${holding.map(option).join('')}</optgroup>` : ''}
+      ${[...groups].map(([group, list]) => `<optgroup label="${esc(group)}">${list.map(option).join('')}</optgroup>`).join('')}
+    </select></label>`;
+}
+
+// Where Consolidate gathers an item: the inventory with the most of it. On a tie, the one
+// in focus, which is the inventory of the selected item (the Inventory page has none, so
+// the first in the sidebar's order wins there).
+function consolidatePlan(s, inv) {
+  const holders = allInventories().filter((i) => amountOf(i, s.id) > 0);
+  const into = holders
+    .filter((i) => BULK.has(i.kind))
+    .reduce((best, i) => (!best || amountOf(i, s.id) > amountOf(best, s.id) || (amountOf(i, s.id) === amountOf(best, s.id) && i.id === inv?.id) ? i : best), null);
+  if (!into || holders.length < 2) return null;
+  return { into, others: holders.filter((i) => i.id !== into.id) };
+}
+
+function consolidateText({ into, others }, id) {
+  const amount = others.reduce((n, i) => n + amountOf(i, id), 0);
+  const from = others.length > 2 ? `${others.length} other places` : others.map((i) => i.container.title).join(' and ');
+  return hasRoom(into, id) ? `Moves ${fmt(amount)} from ${from} to ${invName(into)}` : `${invName(into)} is full`;
+}
+
+function renderConsolidate(s, inv) {
+  const plan = consolidatePlan(s, inv);
+  if (!plan) return '';
+  const { into } = plan;
+  const room = hasRoom(into, s.id);
+  const what = consolidateText(plan, s.id);
+  return `<button class="btn with-icon" data-action="consolidate" data-into="${esc(into.id)}" title="${esc(what)}" ${room ? '' : 'disabled'}>${icon('combine', 15)}${into.id === inv.id ? 'Consolidate here' : `Consolidate to ${esc(into.container.title)}`}</button>
+    <p class="muted small consolidate-note">${esc(what)}</p>`;
 }
 
 // Technology buttons, offered only where the game data allows the edit.
@@ -1143,6 +1202,9 @@ function describeOp(op) {
     case 'setAmount': return `Set amount to ${fmt(op.amount)} in ${at(op)}`;
     case 'remove': return `Remove item from ${at(op)} (${op.x}, ${op.y})`;
     case 'move': return `Move item from ${at(op.from)} to ${at(op.to)}`;
+    case 'moveTo': return `Move item from ${at(op.from)} to ${at(op)}`;
+    case 'consolidate': return `Consolidate ${itemName(op.id)} in ${at({ inv: op.into })}`;
+    case 'consolidateMany': return `Consolidate ${op.items.length} item${op.items.length === 1 ? '' : 's'}`;
     case 'setCurrency': return `Set ${CURRENCY_LABELS[op.field]} to ${fmt(op.value)}`;
     case 'rename': return `Rename to “${op.name}”`;
     case 'setShipType': return `Change ship type to ${typeLabel(op.scene)}`;
@@ -1352,6 +1414,19 @@ document.addEventListener('click', async (e) => {
       return openReview();
     case 'commit':
       return commit();
+    case 'consolidate':
+      return applyOp({ op: 'consolidate', id: d.id ?? slotAt(findInv(state.slot.inv), state.slot.x, state.slot.y).id, into: d.into });
+    case 'consolidate-all': {
+      const q = state.search.trim().toLowerCase();
+      const items = aggregateItems()
+        .filter((it) => it.type !== 'Technology' && (!q || matches(it.id, q)))
+        .map((it) => ({ id: it.id, into: consolidatePlan(it)?.into }))
+        .filter(({ id, into }) => into && hasRoom(into, id));
+      if (!items.length) return;
+      const n = items.length;
+      if (!(await ask(`Consolidate ${n} item${n === 1 ? '' : 's'}${q ? ` matching “${state.search}”` : ''}? Each goes to the inventory holding the most of it, including from your exosuit and ships. Nothing is written until you review and save, and one undo reverses all of it.`, { ok: 'Consolidate' }))) return;
+      return applyOp({ op: 'consolidateMany', items: items.map(({ id, into }) => ({ id, into: into.id })) });
+    }
     case 'close-modal':
       return closeModal();
     case 'details-toggle':
@@ -1856,6 +1931,7 @@ loadAccounts();
 
 document.addEventListener('change', (e) => {
   if (e.target.matches?.('input[name="kind"]')) previewType();
+  if (e.target.matches?.('[data-move-to]') && e.target.value) applyOp({ op: 'moveTo', from: state.slot, inv: e.target.value });
 });
 
 let cellSearchTimer = null;
