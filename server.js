@@ -3,7 +3,6 @@
 // headers (DNS rebinding), and requires a per-launch token on every API call.
 
 import http from 'node:http';
-import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -11,11 +10,11 @@ import * as saves from './src/saves.js';
 import { OpError } from './src/inventory.js';
 import { ModelError } from './src/gamedata/model.js';
 import * as gamedata from './src/gamedata/index.js';
+import { isPackaged, readPublic } from './src/assets.js';
 
 const PORT = Number(process.env.PORT ?? 5280);
 const HOST = '127.0.0.1';
 const TOKEN = crypto.randomBytes(24).toString('hex');
-const PUBLIC = path.join(import.meta.dirname, 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 const allowedHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
@@ -23,9 +22,13 @@ const routes = {
   'GET /api/accounts': () => saves.listAccounts().map(({ dir, ...a }) => a),
   'GET /api/gamedata': () => gamedata.status(),
   // Where saves are read from and written to; testMode means a folder other than the game's.
-  'GET /api/where': () => ({ saveRoots: saves.saveRoots(), usual: saves.autoSaveRoots(), chosen: saves.chosenSaveFolder(), testMode: Boolean(process.env.NMS_SAVE_ROOT), vaultHome: saves.vaultHome }),
+  'GET /api/where': () => ({ packaged: isPackaged, saveRoots: saves.saveRoots(), usual: saves.autoSaveRoots(), chosen: saves.chosenSaveFolder(), testMode: Boolean(process.env.NMS_SAVE_ROOT), vaultHome: saves.vaultHome }),
   'POST /api/folder-browse': (b) => saves.browseFolders(b.path),
   'POST /api/folder-use': (b) => saves.setSaveFolder(b.path ?? null) ?? { ok: true },
+  'POST /api/quit': () => {
+    setTimeout(() => process.exit(0), 100); // after this reply has gone out
+    return { ok: true };
+  },
   'POST /api/verify': (b) => saves.verifyRoundTrip(b.account, b.file),
   'POST /api/open': (b) => saves.sessionView(saves.openSession(b.account, b.file)),
   'POST /api/op': (b) => {
@@ -140,14 +143,36 @@ const server = http.createServer(async (req, res) => {
   }
 
   const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-  const file = path.join(PUBLIC, path.normalize(rel));
-  if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
-  let body = fs.readFileSync(file);
+  let body = readPublic(rel);
+  if (!body) return send(res, 404, 'Not found', 'text/plain');
   if (rel === 'index.html') body = body.toString('utf8').replace('__VAULT_TOKEN__', TOKEN);
-  send(res, 200, body, TYPES[path.extname(file)] ?? 'application/octet-stream');
+  send(res, 200, body, TYPES[path.extname(rel)] ?? 'application/octet-stream');
 });
 
 const gd = gamedata.initGameData(saves.vaultHome);
+
+// Opening a browser is a convenience; the address printed at startup still works if it fails.
+function openBrowser(url) {
+  if (process.argv.includes('--no-open')) return;
+  const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+  spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+}
+
+// Launched twice: show the copy that's already running. Anything else on the port is an error,
+// left on screen long enough to read if this was opened by double-clicking.
+server.on('error', async (e) => {
+  if (e.code !== 'EADDRINUSE') throw e;
+  const url = `http://localhost:${PORT}/`;
+  const running = await fetch(url).then((r) => r.text()).catch(() => '').then((html) => html.includes('name="vault-token"'));
+  if (running) {
+    console.log(`NMS Vault is already running at ${url}`);
+    openBrowser(url);
+    return;
+  }
+  console.error(`Port ${PORT} is in use by another program, so NMS Vault can't start. Close that program, or set PORT to another number.`);
+  process.exitCode = 1;
+  if (isPackaged) setTimeout(() => {}, 30000);
+});
 
 server.listen(PORT, HOST, () => {
   const url = `http://localhost:${PORT}/`;
@@ -155,9 +180,5 @@ server.listen(PORT, HOST, () => {
   console.log(`Saves: ${saves.saveRoots().join(', ')}${process.env.NMS_SAVE_ROOT ? '  (NMS_SAVE_ROOT override — not the game folder)' : ''}`);
   console.log(`Backups: ${saves.vaultHome}`);
   console.log(gd.available ? `Item data: ${gd.items} items from ${gd.dir}` : `Item data unavailable: ${gd.reason}`);
-  if (!process.argv.includes('--no-open')) {
-    // Opening a browser is a convenience; the address above still works if it fails.
-    const [cmd, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
-  }
+  openBrowser(url);
 });

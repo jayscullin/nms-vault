@@ -181,7 +181,7 @@ function renderTopbar() {
   // Global tools, on every page.
   $('#global-tools').innerHTML = `${renderRewardsButton()}${state.gamedata?.available
     ? `<button class="btn with-icon all-items-btn" data-action="catalogue" title="Browse every item in the game">${icon('shapes')}All Items</button>`
-    : ''}`;
+    : ''}${state.where?.packaged ? `<button class="btn icon-btn" data-action="quit" aria-label="Quit NMS Vault" title="Quit NMS Vault">${icon('power')}</button>` : ''}`;
 }
 
 // Rewards live in each platform's own account file. With a save or rewards open that
@@ -1431,6 +1431,16 @@ document.addEventListener('click', async (e) => {
       return closeModal();
     case 'details-toggle':
       return toggleDetails();
+    case 'quit':
+      if (!(await ask(state.view?.ops ? 'Quit NMS Vault and discard your unsaved changes?' : 'Quit NMS Vault?', { ok: 'Quit', danger: Boolean(state.view?.ops) }))) return;
+      return run(async () => {
+        await api('/api/quit', {});
+        state.view = null;
+        $('#global-tools').innerHTML = '';
+        $('#pending').innerHTML = '';
+        $('#save-info').innerHTML = '';
+        app.innerHTML = '<section class="home"><h1>NMS Vault has stopped</h1><p class="lead">You can close this tab.</p></section>';
+      });
     case 'locate':
       return openLocate();
     case 'locate-go':

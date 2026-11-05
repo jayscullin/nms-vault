@@ -8,7 +8,8 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { decodeSave, encodeSave } from './codec.js';
 import { parse, stringify, toDisplay } from './losslessJson.js';
-import { deobfuscate, obfuscate, loadMapping } from './keys.js';
+import { deobfuscate, obfuscate, parseMapping } from './keys.js';
+import { readAsset } from './assets.js';
 import { decryptMeta, encryptMeta, archiveNumberFor, META_MAGIC } from './manifest.js';
 import { catalog, indexCatalog, view, applyOp, inventoryProblems, get, stackGroupOf, OpError, SHIP_KINDS, FREIGHTER_KINDS, shipLock, freighterLock, shipCustomisationIndex } from './inventory.js';
 import { diffTrees } from './validate.js';
@@ -17,8 +18,7 @@ import { describe, stackRule, stackBaseUniform, itemInfo, isAddable, searchItems
 import { knowledgeState, applyKnowledgeOp } from './knowledge.js';
 import { REWARD_LISTS, unlockedIds, applyRewardOp } from './rewards.js';
 
-const here = import.meta.dirname;
-export const mapping = loadMapping(path.join(here, '..', 'data', 'mapping.json'));
+export const mapping = parseMapping(readAsset('data/mapping.json').toString('utf8'));
 
 const META_SIZE_WORD = 14; // decompressed size (text + NUL) in Frontiers-era and later manifests
 const SAVE_FILE = /^save\d*\.hg$/;

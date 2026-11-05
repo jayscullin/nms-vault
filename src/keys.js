@@ -10,8 +10,10 @@
 
 import fs from 'node:fs';
 
-export function loadMapping(path) {
-  const { Mapping, libMBIN_version } = JSON.parse(fs.readFileSync(path, 'utf8'));
+export const loadMapping = (path) => parseMapping(fs.readFileSync(path, 'utf8'));
+
+export function parseMapping(text) {
+  const { Mapping, libMBIN_version } = JSON.parse(text);
   const nameCount = new Map();
   const forward = new Map();
   for (const { Key, Value } of Mapping) {
