@@ -169,7 +169,9 @@ function renderTopbar() {
   const v = state.view;
   $('#save-info').innerHTML = v
     ? `<b>${esc(v.kind === 'account' ? 'Account rewards' : v.summary || v.file)}</b> · <span class="mono">${esc(v.file)} · ${esc(v.account)}</span>`
-    : '<span class="muted">No save open</span>';
+    : state.where && !state.where.testMode
+      ? `<button class="btn small with-icon" data-action="locate">${icon('locate', 14)}Locate saves</button>`
+      : '<span class="muted">No save open</span>';
   const opsBefore = seen.ops;
   const opsChanged = changed('ops', v?.ops ?? 0);
   $('#pending').innerHTML = v
@@ -290,9 +292,9 @@ function renderHome() {
     <section class="home">
       <h1>Choose a save</h1>
       <p class="lead">Edits are staged in memory and validated. Nothing touches your save until you review and confirm, and every write is backed up first.</p>
-      ${state.where ? `<p class="gamedata">Save folder: <span class="mono">${esc(state.where.saveRoots.join(', '))}</span></p>` : ''}
+      ${renderSaveFolder()}
       ${state.gamedata ? `<p class="gamedata ${state.gamedata.available ? '' : 'warn'}">${state.gamedata.available ? `Item names and icons: ${fmt(state.gamedata.items)} items read from your game install.` : `Item names unavailable — ${esc(state.gamedata.reason)}`}</p>` : ''}
-      ${accounts.length ? '' : '<div class="empty-state">No No Man’s Sky saves were found. Set <span class="mono">NMS_SAVE_ROOT</span> to your <span class="mono">HelloGames/NMS</span> folder and restart.</div>'}
+      ${accounts.length ? '' : renderNoSaves()}
       ${accounts
         .map(
           (a) => `
@@ -306,6 +308,64 @@ function renderHome() {
         )
         .join('')}
     </section>`;
+}
+
+function renderSaveFolder() {
+  const w = state.where;
+  if (!w) return '';
+  const label = w.chosen ? 'Save folder (chosen by you)' : 'Save folder';
+  return `<div class="save-folder"><p class="gamedata">${label}: <span class="mono">${esc(w.saveRoots.join(', ') || 'none found')}</span></p>${w.chosen ? '<button class="btn small" data-action="locate-auto">Use usual folder</button>' : ''}</div>`;
+}
+
+function renderNoSaves() {
+  const w = state.where;
+  const text = w?.chosen
+    ? 'The folder you chose has no saves in it right now. If it’s on another computer or drive, check that it’s connected.'
+    : 'NMS Vault couldn’t find your No Man’s Sky saves. Show it where they are and it’ll remember.';
+  return `<div class="no-saves">
+    ${icon('locate', 44)}
+    <h2>No saves found</h2>
+    <p>${text}</p>
+    ${w?.testMode ? '' : `<button class="btn primary with-icon" data-action="locate">${icon('locate', 18)}Locate saves</button>`}
+  </div>`;
+}
+
+// Picks the folder the server reads saves from. A browser page can't learn a real
+// folder path, so the server lists the folders (names only, nothing inside files).
+async function openLocate(path) {
+  await run(async () => {
+    const f = await api('/api/folder-browse', { path });
+    const n = f.found.saves;
+    const status = f.error
+      ? `<p class="locate-status warn" role="status">${esc(f.error)}</p>`
+      : n
+        ? `<p class="locate-status good" role="status">Found ${n} save${n === 1 ? '' : 's'} in ${f.found.accounts.length === 1 ? esc(f.found.accounts[0].id) : `${f.found.accounts.length} accounts`}.</p>`
+        : '<p class="locate-status muted" role="status">No saves in this folder.</p>';
+    modal(`
+      <h2 class="with-icon">${icon('locate', 20)}Locate saves</h2>
+      <p class="muted">Choose the <span class="mono">HelloGames/NMS</span> folder, or one account’s folder with <span class="mono">save.hg</span> in it. On this computer the game normally uses:</p>
+      <p class="locate-usual mono">${esc(state.where.usual.join(', ') || 'a Steam library')}</p>
+      <form class="locate-form" data-form="locate">
+        <input class="mono" name="path" value="${esc(f.path)}" aria-label="Folder path" spellcheck="false" autocomplete="off">
+        <button class="btn" type="submit">Go</button>
+      </form>
+      <div class="locate-places">${f.places.map((p) => `<button class="pill" data-action="locate-go" data-path="${esc(p.path)}">${esc(p.name)}</button>`).join('')}</div>
+      ${status}
+      <ul class="locate-list">
+        ${f.parent ? `<li><button class="locate-dir with-icon" data-action="locate-go" data-path="${esc(f.parent)}">${icon('folder-up', 15)}Up one folder</button></li>` : ''}
+        ${f.dirs.map((d) => `<li><button class="locate-dir with-icon" data-action="locate-go" data-path="${esc(d.path)}">${icon('folder', 15)}${esc(d.name)}</button></li>`).join('')}
+      </ul>
+      <footer><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="locate-use" data-path="${esc(f.path)}" ${n ? '' : 'disabled'}>Use this folder</button></footer>`, { wide: true });
+  });
+}
+
+async function useSaveFolder(path) {
+  await run(async () => {
+    await api('/api/folder-use', { path });
+    closeModal();
+    state.where = null;
+    await loadAccounts();
+  });
 }
 
 function renderSidebar() {
@@ -1293,6 +1353,14 @@ document.addEventListener('click', async (e) => {
       return closeModal();
     case 'details-toggle':
       return toggleDetails();
+    case 'locate':
+      return openLocate();
+    case 'locate-go':
+      return openLocate(d.path);
+    case 'locate-use':
+      return useSaveFolder(d.path);
+    case 'locate-auto':
+      return useSaveFolder(null);
     case 'backups':
       return openBackups(d.account);
     case 'backup-delete':
@@ -1410,6 +1478,10 @@ document.addEventListener('click', async (e) => {
 });
 
 document.addEventListener('submit', (e) => {
+  if (e.target.dataset.form === 'locate') {
+    e.preventDefault();
+    return openLocate(new FormData(e.target).get('path'));
+  }
   if (e.target.dataset.form !== 'amount') return;
   e.preventDefault();
   applyOp({ op: 'setAmount', ...state.slot, amount: Number(new FormData(e.target).get('amount')) });

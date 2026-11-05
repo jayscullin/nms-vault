@@ -555,6 +555,25 @@ input:not(.currency input):focus, select:focus { box-shadow: 0 0 10px rgba(242, 
 .backup-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 2px; border-top: 1px solid var(--line); }
 .backup-list .icon-btn { padding: 4px 6px; }
 
+/* Locating saves by hand */
+.save-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -12px 0 20px; }
+.save-folder .gamedata { margin: 0; flex: 0 1 auto; min-width: 0; word-break: break-word; }
+.no-saves { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 8px; padding: 56px 24px; text-align: center; color: var(--muted); border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); }
+.no-saves > .icon { color: var(--accent); filter: drop-shadow(0 0 12px rgba(242, 174, 61, .45)); }
+.no-saves h2 { margin: 0; font-size: 24px; color: var(--text); }
+.no-saves p { max-width: 46ch; margin: 0 0 8px; }
+.no-saves .btn { padding: 12px 24px; font-size: 15px; }
+.locate-usual { margin: 0 0 14px; font-size: 13px; color: var(--muted); word-break: break-all; }
+.locate-form { display: flex; gap: 8px; }
+.locate-form input { flex: 1; min-width: 0; padding: 7px 10px; font-size: 13px; color: inherit; border: 1px solid var(--line-strong); border-radius: var(--radius); background: rgba(0, 0, 0, .35); }
+.locate-places { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.locate-status { margin: 10px 0 6px; font-size: 13px; }
+.locate-status.good { color: var(--teal); }
+.locate-status.warn { color: var(--warn); }
+.locate-list { list-style: none; margin: 0; padding: 0; overflow: auto; min-height: 120px; flex: 1; border-top: 1px solid var(--line); }
+.locate-dir { width: 100%; padding: 6px 4px; font: inherit; color: inherit; text-align: left; word-break: break-all; background: none; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.locate-dir:hover, .locate-dir:focus-visible { background: rgba(255, 255, 255, .06); }
+
 /* Change type: the types beside a preview of the chosen one. */
 .type-picker { display: grid; grid-template-columns: minmax(170px, 220px) 1fr; gap: 14px; min-height: 0; margin-top: 12px; }
 .type-picker .add-targets { margin: 0; align-content: start; }

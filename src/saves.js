@@ -31,8 +31,28 @@ const backupRoot = path.join(vaultHome, 'backups');
 const SAVE_SUBPATH = 'HelloGames/NMS';
 const PROTON_SAVES = `steamapps/compatdata/275850/pfx/drive_c/users/steamuser/AppData/Roaming/${SAVE_SUBPATH}`;
 
+// A save folder the user picked by hand, remembered between launches.
+const settingsFile = path.join(vaultHome, 'settings.json');
+let chosenFolder = (() => {
+  try {
+    const { saveFolder } = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    return typeof saveFolder === 'string' && saveFolder ? saveFolder : null;
+  } catch {
+    return null;
+  }
+})();
+
+// NMS_SAVE_ROOT wins, so a test run can never land on a folder chosen for real use.
+export const chosenSaveFolder = () => (process.env.NMS_SAVE_ROOT ? null : chosenFolder);
+
 export function saveRoots() {
   if (process.env.NMS_SAVE_ROOT) return [process.env.NMS_SAVE_ROOT];
+  if (chosenFolder) return [chosenFolder];
+  return autoSaveRoots();
+}
+
+// Where the game keeps saves on this system.
+export function autoSaveRoots() {
   const home = os.homedir();
   if (process.platform === 'darwin') return [path.join(home, 'Library/Application Support', SAVE_SUBPATH)];
   if (process.platform === 'win32') return [path.join(process.env.APPDATA ?? path.join(home, 'AppData/Roaming'), SAVE_SUBPATH)];
@@ -87,13 +107,27 @@ function manifestSavedAt(metaPath, file) {
   }
 }
 
+// The accounts in a folder: either the game's folder, holding st_* or DefaultUser
+// folders, or one account's own folder, holding the save files directly.
+function accountDirs(root) {
+  const entries = fs.readdirSync(root, { withFileTypes: true });
+  const named = entries.filter((e) => e.isDirectory() && (e.name.startsWith('st_') || e.name === 'DefaultUser')).map((e) => ({ id: e.name, dir: path.join(root, e.name) }));
+  if (named.length) return named;
+  return entries.some((e) => SAVE_FILE.test(e.name)) ? [{ id: path.basename(root) || 'saves', dir: root }] : [];
+}
+
+const accountKind = (id) => (id.startsWith('st_') ? 'Steam' : id === 'DefaultUser' ? 'GOG' : 'Folder');
+
 export function listAccounts() {
   const accounts = [];
   for (const root of saveRoots()) {
-    if (!fs.existsSync(root)) continue;
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !(entry.name.startsWith('st_') || entry.name === 'DefaultUser')) continue;
-      const dir = path.join(root, entry.name);
+    let found;
+    try {
+      found = accountDirs(root);
+    } catch {
+      continue; // missing, or a drive that isn't connected right now
+    }
+    for (const { id, dir } of found) {
       const slots = fs
         .readdirSync(dir)
         .filter((f) => SAVE_FILE.test(f))
@@ -119,15 +153,82 @@ export function listAccounts() {
         })
         .sort((a, b) => archiveNumberFor(a.file) - archiveNumberFor(b.file));
       accounts.push({
-        id: entry.name,
+        id,
         dir,
-        kind: entry.name === 'DefaultUser' ? 'GOG' : 'Steam',
+        kind: accountKind(id),
         slots,
         accountFile: fs.existsSync(path.join(dir, ACCOUNT_FILE)),
       });
     }
   }
   return accounts;
+}
+
+// ---- Locating saves by hand -------------------------------------------------
+
+const countSaves = (root) => {
+  const accounts = accountDirs(root).map(({ id, dir }) => ({ id, kind: accountKind(id), saves: fs.readdirSync(dir).filter((f) => SAVE_FILE.test(f)).length }));
+  return { accounts, saves: accounts.reduce((n, a) => n + a.saves, 0) };
+};
+
+const isDir = (p) => {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+// Quick ways into the places a save folder might be, such as other drives.
+function folderPlaces() {
+  const places = [{ name: 'Home', path: os.homedir() }];
+  if (process.platform === 'win32') {
+    for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') if (isDir(`${letter}:\\`)) places.push({ name: `${letter}:`, path: `${letter}:\\` });
+  } else {
+    for (const p of ['/Volumes', '/mnt', '/media', '/run/media']) if (isDir(p)) places.push({ name: p, path: p });
+  }
+  return places;
+}
+
+// One folder for the picker: its subfolders (names only) and any saves in it.
+// Reads nothing inside files and writes nothing.
+export function browseFolders(requested) {
+  const start = requested?.trim() || chosenSaveFolder() || autoSaveRoots().find(isDir) || os.homedir();
+  const full = path.resolve(start.replace(/^~(?=$|[\\/])/, os.homedir()));
+  const parent = path.dirname(full) === full ? null : path.dirname(full);
+  const base = { path: full, parent, places: folderPlaces() };
+  try {
+    const dirs = fs
+      .readdirSync(full, { withFileTypes: true })
+      .filter((e) => (e.isSymbolicLink() ? isDir(path.join(full, e.name)) : e.isDirectory()))
+      .map((e) => ({ name: e.name, path: path.join(full, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { ...base, dirs, found: countSaves(full) };
+  } catch {
+    return { ...base, dirs: [], found: { accounts: [], saves: 0 }, error: 'That folder doesn’t exist or can’t be opened.' };
+  }
+}
+
+function writeSettings(settings) {
+  fs.mkdirSync(vaultHome, { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+}
+
+// Saves are only ever read from a folder that really holds some. Pass null to go
+// back to the game's usual place. Open sessions belong to the old folder, so they end.
+export function setSaveFolder(folder) {
+  if (process.env.NMS_SAVE_ROOT) throw new OpError('NMS_SAVE_ROOT is set, so it decides the save folder');
+  if (folder === null) {
+    chosenFolder = null;
+    writeSettings({});
+  } else {
+    const { path: full, found, error } = browseFolders(String(folder));
+    if (error) throw new OpError(error);
+    if (!found.saves) throw new OpError('No saves were found in that folder. Choose the HelloGames/NMS folder, or a folder with save.hg in it.');
+    chosenFolder = full;
+    writeSettings({ saveFolder: full });
+  }
+  sessions.clear();
 }
 
 export function resolveSave(accountId, file) {
@@ -634,6 +735,9 @@ export function review(s) {
   if (s.account.kind === 'Steam' && isSteamRunning()) {
     notices.push('Steam is running. Steam Cloud uploads this change on next sync, and can replace it if another device has a newer save.');
   }
+  if (chosenSaveFolder()) {
+    notices.push('This save is in a folder you chose. NMS Vault can only tell if the game is running on this computer, so if the folder belongs to another computer, close the game and Steam there first.');
+  }
 
   return { ok: !fail(), checks, notices, bytes: fail() ? null : bytes, metaBytes, text };
 }
@@ -834,13 +938,17 @@ export async function commit(s) {
 // ---- Backups ----------------------------------------------------------------
 
 export function listBackups(accountId) {
-  if (!listAccounts().some((a) => a.id === accountId)) throw new OpError('Unknown account');
+  const account = listAccounts().find((a) => a.id === accountId);
+  if (!account) throw new OpError('Unknown account');
   const dir = path.join(backupRoot, accountId);
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
     .filter((d) => fs.existsSync(path.join(dir, d, 'backup.json')))
     .map((d) => ({ id: d, ...JSON.parse(fs.readFileSync(path.join(dir, d, 'backup.json'), 'utf8')), size: folderSize(path.join(dir, d)) }))
+    // The same account can exist in several folders (this computer's, a mounted PC's).
+    // A backup only belongs to the folder it came from, or restoring would overwrite another.
+    .filter((b) => !b.sourceDir || b.sourceDir === account.dir)
     .sort((a, b) => b.created.localeCompare(a.created));
 }
 

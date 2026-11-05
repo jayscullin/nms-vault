@@ -23,7 +23,9 @@ const routes = {
   'GET /api/accounts': () => saves.listAccounts().map(({ dir, ...a }) => a),
   'GET /api/gamedata': () => gamedata.status(),
   // Where saves are read from and written to; testMode means a folder other than the game's.
-  'GET /api/where': () => ({ saveRoots: saves.saveRoots(), testMode: Boolean(process.env.NMS_SAVE_ROOT), vaultHome: saves.vaultHome }),
+  'GET /api/where': () => ({ saveRoots: saves.saveRoots(), usual: saves.autoSaveRoots(), chosen: saves.chosenSaveFolder(), testMode: Boolean(process.env.NMS_SAVE_ROOT), vaultHome: saves.vaultHome }),
+  'POST /api/folder-browse': (b) => saves.browseFolders(b.path),
+  'POST /api/folder-use': (b) => saves.setSaveFolder(b.path ?? null) ?? { ok: true },
   'POST /api/verify': (b) => saves.verifyRoundTrip(b.account, b.file),
   'POST /api/open': (b) => saves.sessionView(saves.openSession(b.account, b.file)),
   'POST /api/op': (b) => {

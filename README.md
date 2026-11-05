@@ -24,7 +24,7 @@ First run of the browser tests: `npm install && npx playwright install chromium`
 
 ## What it does
 
-- Finds your saves automatically (macOS, Windows, Linux/Proton), or uses `NMS_SAVE_ROOT`.
+- Finds your saves automatically (macOS, Windows, Linux/Proton). If it can't, **Locate saves** in the top bar lets you pick the folder, which it remembers. `NMS_SAVE_ROOT` overrides both. Backups stay with the folder they came from, and the review screen reminds you that it can only tell if the game is running on this computer.
 - Shows every inventory as its in-game grid: exosuit, starships, multi-tools, freighter, storage containers, exocraft, and base storage.
 - Real item names, descriptions and icons, read directly from your installed game (see below).
 - **Inventory** view: totals for each item across every inventory, with jump-to-location. Search matches names and IDs.
