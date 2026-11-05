@@ -441,6 +441,56 @@ test.describe('clicking an item', () => {
     expect(await page.locator('.content').evaluate((el) => el.scrollTop)).toBe(0);
   });
 
+  test('searching opens Inventory, filtered to what you have and where it is', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    const box = page.locator('#search');
+    await cell(page, 0, 0, 0).click();
+    await expect(page.locator('.items-table')).toHaveCount(0);
+
+    // The first letter opens the page, and typing keeps focus.
+    await box.pressSequentially('hyperfuel2');
+    await expect(box).toBeFocused();
+    await expect(box).toHaveValue('hyperfuel2');
+    await expect(page.locator('.nav-item.active')).toContainText('Inventory');
+    await expect(page.locator('.content h2').first()).toContainText('Inventory');
+    const rows = page.locator('.items-table tbody tr');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('^HYPERFUEL2');
+    await expect(rows.first().locator('.loc')).toHaveCount(2);
+    await expect(rows.first().locator('td.num')).toHaveText('35');
+
+    // Something the game has, but this save doesn't, isn't listed.
+    await box.fill('chromatic metal');
+    await expect(page.locator('.items-table')).toHaveCount(0);
+    await expect(page.locator('.content')).toContainText('Nothing in this save matches');
+
+    // Esc clears the search and leaves the whole Inventory showing.
+    await box.fill('antimatter');
+    await expect(rows).toHaveCount(1);
+    await box.press('Escape');
+    await expect(box).toHaveValue('');
+    await expect(box).toBeFocused();
+    await expect(page.locator('.nav-item.active')).toContainText('Inventory');
+    expect(await rows.count()).toBeGreaterThan(1);
+
+    // A location opens that place and selects the item.
+    await box.fill('antimatter');
+    await page.locator('.loc').first().click();
+    await expect(box).toHaveValue('');
+    await expect(page.locator('.cell.selected')).toHaveCount(1);
+    await expect(page.locator('.details')).toContainText(/antimatter/i);
+  });
+
+  test('searching from another page leaves no hidden selection to edit', async ({ page }) => {
+    await openSave(page, 'save.hg');
+    await cell(page, 0, 0, 0).click();
+    await page.locator('#search').pressSequentially('fuel');
+    await page.locator('.content h2').first().click();
+    await page.keyboard.press('f');
+    await page.keyboard.press('Delete');
+    await expect(page.locator('.badge')).toHaveCount(0);
+  });
+
   test('shortcuts still work until you start editing, and then keys edit the number', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
     await openSave(page, 'save.hg');

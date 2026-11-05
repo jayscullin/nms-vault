@@ -483,7 +483,6 @@ input:not(.currency input):focus, select:focus { box-shadow: 0 0 10px rgba(242, 
 /* Slots, in rising priority so the later states win. */
 .cell:has(.tile.damaged) { box-shadow: 0 0 10px rgba(229, 56, 79, .35); }
 .cell:has(.tile):hover, .cell.unlockable:hover { z-index: 1; box-shadow: 0 0 12px rgba(79, 214, 196, .4); }
-.cell.hit { box-shadow: 0 0 0 2px var(--teal), 0 0 14px rgba(79, 214, 196, .5); }
 .cell.over { box-shadow: 0 0 14px rgba(242, 174, 61, .55); z-index: 1; }
 .cell.selected { box-shadow: 0 0 18px rgba(255, 255, 255, .35); }
 

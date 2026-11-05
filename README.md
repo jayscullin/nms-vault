@@ -27,7 +27,8 @@ First run of the browser tests: `npm install && npx playwright install chromium`
 - Finds your saves automatically (macOS, Windows, Linux/Proton). If it can't, **Locate saves** in the top bar lets you pick the folder, which it remembers. `NMS_SAVE_ROOT` overrides both. Backups stay with the folder they came from, and the review screen reminds you that it can only tell if the game is running on this computer.
 - Shows every inventory as its in-game grid: exosuit, starships, multi-tools, freighter, storage containers, exocraft, and base storage.
 - Real item names, descriptions and icons, read directly from your installed game (see below).
-- **Inventory** view: totals for each item across every inventory, with jump-to-location. Search matches names and IDs.
+- **Inventory** view: totals for each item across every inventory, with jump-to-location.
+- **Search:** typing in the search box on any page opens the Inventory view, filtered to the items you have that match by name or ID, with their totals and where they are. Click a location to jump to it, or press `Esc` to clear the search.
 - Edits: set stack amounts, fill stacks, remove items, drag to rearrange or transfer (onto a cell, or onto a container in the sidebar), rename ships, multi-tools and containers, and set Units, Nanites and Quicksilver.
 - **Add items:** select an empty cell and the details pane lists what fits there, with search. General and storage grids offer products and substances; procedural items, which need a game-generated seed, can't be added. New stacks copy the slot format of an existing slot in the same save and get the game's stack limit for that inventory.
 - **Install technology:** technology grids only offer technology that fits that grid, such as Weapon technology for a multi-tool, using the game's own categories. It installs fully charged, one of each per grid. Core technology, procedural upgrades and broken-slot stand-ins aren't offered.

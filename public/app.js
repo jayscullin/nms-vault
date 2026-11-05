@@ -18,7 +18,6 @@ const state = {
   selected: null, // container id, or 'items'
   slot: null, // { inv, x, y }
   search: '',
-  highlight: null, // item id to outline
   saveMenu: null, // account/file whose Open menu is showing
   rewardsMenu: false, // the top bar's platform chooser
   cellQuery: '', // search in the empty cell pane
@@ -409,17 +408,15 @@ const canUnlockSlots = (inv) => inv.kind === 'general' || inv.kind === 'tech';
 function renderGrid(inv) {
   const valid = new Set(inv.valid);
   const canUnlock = canUnlockSlots(inv);
-  const q = state.search.trim().toLowerCase();
   const cells = [];
   for (let y = 0; y < inv.height; y++) {
     for (let x = 0; x < inv.width; x++) {
       const s = slotAt(inv, x, y);
       const unlocked = valid.has(`${x},${y}`);
       const sel = state.slot && state.slot.inv === inv.id && state.slot.x === x && state.slot.y === y;
-      const hit = s && ((q && matches(s.id, q)) || state.highlight === s.id);
       const icon = s && iconUrl(s.id);
       cells.push(`
-        <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${hit ? 'hit' : ''} ${state.landed?.cell === `${inv.id}|${x}|${y}` ? 'landed' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
+        <div class="cell ${unlocked ? '' : `locked${canUnlock ? ' unlockable' : ''}`} ${sel ? 'selected' : ''} ${state.landed?.cell === `${inv.id}|${x}|${y}` ? 'landed' : ''}" data-cell data-inv="${esc(inv.id)}" data-x="${x}" data-y="${y}"${unlocked || s ? '' : ` title="${canUnlock ? 'Locked slot: click to unlock it' : 'Locked slot: this inventory’s size is capped by the game'}"`}>
           ${
             s
               ? `<button class="tile t-${esc(s.type)}${icon ? ' has-icon' : ''}${s.type === 'Technology' && s.damage > 0 ? ' damaged' : ''}" draggable="true" data-slot aria-label="${esc(itemName(s.id))} (${esc(s.id)})">
@@ -577,9 +574,11 @@ function renderItems() {
   const rows = aggregateItems()
     .filter((it) => !q || matches(it.id, q))
     .sort((a, b) => a.type.localeCompare(b.type) || b.total - a.total);
+  const title = `<h2 class="with-icon">${icon('inventory', 22)}Inventory</h2>`;
+  if (q && !rows.length) return `${title}<p class="sub">Nothing in this save matches “${esc(state.search)}”.</p>`;
   return `
-    <h2 class="with-icon">${icon('inventory', 22)}Inventory</h2>
-    <p class="sub">${rows.length} distinct items across every inventory${q ? ` matching “${esc(state.search)}”` : ''}. Click a location to jump to it.</p>
+    ${title}
+    <p class="sub">${q ? `${rows.length} item${rows.length === 1 ? '' : 's'} you have matching “${esc(state.search)}”.` : `${rows.length} distinct items across every inventory.`} Click a location to jump to it.</p>
     <table class="items-table">
       <thead><tr><th>Item</th><th>Type</th><th class="num">Total</th><th>Where</th></tr></thead>
       <tbody>${rows
@@ -775,9 +774,10 @@ function render() {
 
 state.bpFilter = 'unknown';
 state.bpSel = new Set();
+state.bpSearch = '';
 
 function shownBlueprints() {
-  const q = state.search.trim().toLowerCase();
+  const q = state.bpSearch.trim().toLowerCase();
   return state.view.knowledge.blueprints.filter((b) => {
     if (state.bpFilter === 'unknown' && b.known) return false;
     if (state.bpFilter === 'known' && !b.known) return false;
@@ -809,11 +809,11 @@ function renderBlueprints() {
     <section class="inv">
       <div class="reward-bar">
         <div class="tabs">${['unknown', 'known', 'all'].map((f) => `<button class="tab small ${f === state.bpFilter ? 'active' : ''}" data-bp-filter="${f}">${f === 'unknown' ? 'Not learned' : f === 'known' ? 'Learned' : 'All'}</button>`).join('')}</div>
-        <input type="search" id="bp-search" placeholder="Search blueprints…" value="${esc(state.search)}" aria-label="Search blueprints">
+        <input type="search" id="bp-search" placeholder="Search blueprints…" value="${esc(state.bpSearch)}" aria-label="Search blueprints">
       </div>
       <div class="reward-actions">
         <button class="btn primary" data-action="learn-selected" ${sel.length ? '' : 'disabled'}>Learn selected (${sel.length})</button>
-        <button class="btn" data-action="learn-shown" ${unknownShown.length ? '' : 'disabled'}>Learn all ${state.search ? 'matching' : 'shown'} (${unknownShown.length})</button>
+        <button class="btn" data-action="learn-shown" ${unknownShown.length ? '' : 'disabled'}>Learn all ${state.bpSearch ? 'matching' : 'shown'} (${unknownShown.length})</button>
       </div>
       <div class="reward-grid">${shown.slice(0, 300).map((b) => `
         <button class="reward ${b.known ? 'is-unlocked' : ''} ${sel.includes(b.id) ? 'selected' : ''}" data-bp="${esc(b.id)}" ${b.known ? 'disabled' : ''}>
@@ -1279,12 +1279,14 @@ document.addEventListener('click', async (e) => {
   }
   if (d.jump) {
     closeModal(); // e.g. "Show" in the catalogue
+    state.search = ''; // the search has done its job; show the place it found
     state.selected = d.jump;
     state.slot = { inv: d.inv, x: Number(d.x), y: Number(d.y) };
     render();
     return document.querySelector('.cell.selected')?.scrollIntoView({ block: 'center' });
   }
   if (d.select) {
+    state.search = '';
     state.selected = d.select;
     state.slot = null;
     return render();
@@ -1337,6 +1339,7 @@ document.addEventListener('click', async (e) => {
         state.selected = state.view.containers?.[0]?.id;
         state.slot = null;
         state.search = '';
+        state.bpSearch = '';
         state.rewardSel.clear();
         render();
       });
@@ -1490,7 +1493,15 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('input', (e) => {
   const { id } = e.target;
   if (id !== 'search' && id !== 'bp-search') return;
-  state.search = e.target.value;
+  if (id === 'bp-search') state.bpSearch = e.target.value;
+  else {
+    state.search = e.target.value;
+    // Searching looks through what you have, on the Inventory page. (Rewards search their own list.)
+    if (state.search.trim() && state.view?.kind !== 'account' && state.selected !== 'items') {
+      state.selected = 'items';
+      state.slot = null;
+    }
+  }
   const pos = e.target.selectionStart;
   const refocus = () => {
     const box = document.getElementById(id);
@@ -1533,7 +1544,7 @@ const SHORTCUTS = [
   ['R', 'Recharge or repair the selected technology'],
   ['U', 'Unlock the locked slots of the selected inventory'],
   ['A / Enter', 'Add an item to the selected empty cell'],
-  ['/', 'Search'],
+  ['/', 'Search your items on the Inventory page; Esc clears'],
   [`${MOD}S`, `Review changes; ${MOD}S again (or Enter) writes the save`],
   [`${MOD}Z`, 'Undo'],
   ['Esc', 'Close a dialog or clear the selection'],
@@ -1628,6 +1639,13 @@ async function onShortcut(e) {
 }
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.target.id === 'search' && state.search) {
+    e.preventDefault();
+    e.stopPropagation();
+    state.search = '';
+    render();
+    return $('#search')?.focus();
+  }
   if (e.key === 'Enter' && e.target.dataset.currency) e.target.blur();
   const reviewOpen = $('#modal-root [data-action="commit"]');
   const amountBox = e.target.matches?.('.amount-form input');
