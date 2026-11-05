@@ -33,3 +33,11 @@ the system itself:
 ```
 NMS_SAVE_ROOT="/Volumes/PC/HelloGames/NMS" NMS_GAME_DIR="/Volumes/PC/PCBANKS" npm run doctor
 ```
+
+## Testing a download
+
+The **Build downloads** workflow makes the private builds. In GitHub, go to Actions > Build downloads > Run workflow, then download from the draft on the Releases page while signed in. Anyone without write access can't see it.
+
+A build needs nothing installed, so it's also the quickest test on a real machine: unzip it, run it, and check that it finds your saves and shows item names and icons. Make an edit on a save you can afford to lose, then load it in-game. The first launch shows a system warning, as the builds aren't signed.
+
+Building releases on Node 26 doesn't change what source users need: running from source still works on Node 22.15 or newer.

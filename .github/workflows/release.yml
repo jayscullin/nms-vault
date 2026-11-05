@@ -1,0 +1,58 @@
+name: Build downloads
+
+# Only runs when started by hand from the Actions tab. It builds each download and attaches
+# it to a DRAFT release, which only people with write access to the repository can see.
+# It never publishes: that stays a manual step on the Releases page.
+#
+# Don't upload the builds with actions/upload-artifact. On a public repository, any
+# signed-in GitHub user can download those artifacts.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.draft.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}-preview.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" --title "NMS Vault ${version} preview ${GITHUB_RUN_NUMBER}" --notes "Private preview build of ${GITHUB_SHA}. Not published."
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      # Runs the executable itself against generated saves.
+      - run: npm run smoke
+      - name: Attach to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          gh release upload "$TAG" dist/*.zip dist/*.tar.gz dist/*.sha256

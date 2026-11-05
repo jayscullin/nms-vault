@@ -22,6 +22,15 @@ npm run test:e2e:gamedata   # also the tests that need the game installed
 
 First run of the browser tests: `npm install && npx playwright install chromium`.
 
+## Building the downloads
+
+```bash
+npm run build   # needs Node 25.5+; builds dist/NMS-Vault-<version>-<system>-<cpu> for this computer
+npm run smoke   # runs that executable against generated saves
+```
+
+Each download holds one executable with Node, the app and its files inside, so it needs nothing installed. It can't be built for another system from here: the **Build downloads** workflow does each one on its own system, when started by hand from the Actions tab. It attaches them to a draft release, which only people with write access can see, and never publishes it. The builds aren't notarized or signed, so macOS and Windows warn on first launch.
+
 ## What it does
 
 - Finds your saves automatically (macOS, Windows, Linux/Proton). If it can't, **Locate saves** in the top bar lets you pick the folder, which it remembers. `NMS_SAVE_ROOT` overrides both. Backups stay with the folder they came from, and the review screen reminds you that it can only tell if the game is running on this computer.
@@ -88,6 +97,7 @@ At startup the server finds the game install through your Steam libraries (or `N
 
 ```
 server.js            local HTTP server (127.0.0.1 only, per-launch API token)
+src/assets.js        the app's own files, on disk or inside the executable
 src/codec.js         .hg chunk format + LZ4 block codec
 src/losslessJson.js  byte-exact JSON parse/stringify
 src/keys.js          reversible key (de)obfuscation
